@@ -30,7 +30,7 @@ link_sys       := stdc++ dl protobuf
 link_librarys  := $(link_cuda) $(link_tensorRT) $(link_sys) $(link_opencv)
 
 include_paths := src        \
-    $(cuda_home)/include    \
+	$(cuda_home)/include    \
 	$(trt_home)/include     \
 	$(cv_dir)               \
 	$(pb_home)/include/     \
