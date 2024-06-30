@@ -10,6 +10,8 @@
 - tensorRT: 8.0.3.4
 - protobuf: 3.11.4
 
+或参考[README](docker/README.md)使用Docker容器。
+
 ## 📥 下载视频&模型
 创建工作目录:
 ```shell
