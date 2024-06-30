@@ -29,7 +29,7 @@ link_opencv    := opencv_core opencv_imgproc opencv_imgcodecs opencv_highgui ope
 link_sys       := stdc++ dl protobuf
 link_librarys  := $(link_cuda) $(link_tensorRT) $(link_sys) $(link_opencv)
 
-include_paths := src        \
+include_paths := src		\
 	$(cuda_home)/include    \
 	$(trt_home)/include     \
 	$(cv_dir)               \
