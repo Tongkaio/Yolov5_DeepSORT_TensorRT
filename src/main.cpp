@@ -372,6 +372,9 @@ void inference(const string& file) {
 
             float* pclass = ptr + 5;
             int label     = std::max_element(pclass, pclass + num_classes) - pclass;
+            if (cocolabels[label] != "person")  // only detect and track person
+                continue;
+
             float prob    = pclass[label];
             float confidence = prob * objness;
             if(confidence < confidence_threshold)
