@@ -1,5 +1,6 @@
 #include "nn_matching.h"
 #include <iostream>
+#include <omp.h>
 
 using namespace Eigen;
 
@@ -27,7 +28,9 @@ NearNeighborDisMetric::distance(
 {
     DYNAMICM cost_matrix = Eigen::MatrixXf::Zero(targets.size(), features.rows());
     int idx = 0;
-  for (int target:targets) {
+
+    #pragma omp parallel for
+    for (int target:targets) {
         cost_matrix.row(idx) = (this->*_metric) (this->samples[target], features);
         idx++;
     }
