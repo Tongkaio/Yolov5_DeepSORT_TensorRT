@@ -23,6 +23,9 @@
 // deepsort
 #include "deepsort.h"
 
+// openmp
+#include <omp.h>
+
 using namespace std;
 
 #define checkRuntime(op)  __check_cuda_runtime((op), #op, __FILE__, __LINE__)
@@ -469,7 +472,7 @@ void inference(const string& file) {
         cv::imshow("Frame", image);
         // outputVideoWriter.write(image);
         // press `Esc` to quit
-        if (cv::waitKey(30) == 27) {
+        if (cv::waitKey(1) == 27) {
             std::cout << "Esc key is pressed by user. Stopping the video." << std::endl;
             break;
         }
@@ -484,6 +487,7 @@ void inference(const string& file) {
 }
 
 int main(){
+    omp_set_num_threads(8);
     // 1. build yolov5s engine, save to workspace/yolov5s.trtmodel
     if(!build_yolov5_model()){
         return -1;
