@@ -1,5 +1,6 @@
 #include "nn_matching.h"
 #include <iostream>
+#include <omp.h>
 
 using namespace Eigen;
 
