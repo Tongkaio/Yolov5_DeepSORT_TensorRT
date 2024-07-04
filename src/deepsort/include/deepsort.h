@@ -45,4 +45,6 @@ private:
     int gpuID;
 };
 
-#endif  //deepsort.h
+bool build_deepsort_model();
+
+#endif  // DEEPSORT_H

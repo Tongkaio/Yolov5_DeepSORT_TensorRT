@@ -1,5 +1,7 @@
 #include "deepsort.h"
 
+#include "utils.h"
+
 DeepSort::DeepSort(std::string modelPath, int batchSize, int featureDim, int gpuID, ILogger* gLogger) {
     this->gpuID = gpuID;
     this->enginePath = modelPath;
@@ -59,7 +61,6 @@ void DeepSort::sort(cv::Mat& frame, vector<DetectBox>& dets) {
         dets[i].confidence = c.conf;
     }
 }
-
 
 void DeepSort::sort(cv::Mat& frame, DETECTIONS& detections) {
     bool flag = featureExtractor->getRectsFeature(frame, detections);
@@ -125,4 +126,63 @@ void DeepSort::sort(DETECTIONS& detections) {
             result.push_back(make_pair(track.track_id, track.to_tlwh()));
         }
     }
+}
+
+// build deepsort engine, save to workspace/deepsort.trtmodel
+bool build_deepsort_model() {
+    if(exists("deepsort.trtmodel")) {
+        printf("deepsort.trtmodel has exists.\n");
+        return true;
+    }
+
+    TRTLogger logger;
+
+    // make_nvshared, destroy automatically
+    auto builder = make_nvshared(nvinfer1::createInferBuilder(logger));
+    auto config = make_nvshared(builder->createBuilderConfig());
+    auto network = make_nvshared(builder->createNetworkV2(1));
+
+    // parse network data from onnx file to `network`
+    auto parser = make_nvshared(nvonnxparser::createParser(*network, logger));
+    if(!parser->parseFromFile("deepsort.onnx", 1)) {
+        printf("Failed to parse deepsort.onnx\n");
+        return false;
+    }
+    
+    int maxBatchSize = 10;
+    printf("Workspace Size = %.2f MB\n", (1 << 28) / 1024.0f / 1024.0f);
+    config->setMaxWorkspaceSize(1 << 28);
+
+    auto profile = builder->createOptimizationProfile();
+    auto input_tensor = network->getInput(0);
+    printf("input->name = %s\n", input_tensor->getName());
+
+    const int IMG_HEIGHT = 128;
+    const int IMG_WIDTH = 64;
+    const int MAX_BATCH_SIZE = 128;
+    nvinfer1::Dims dims = nvinfer1::Dims4{1, 3, IMG_HEIGHT, IMG_WIDTH};
+
+    // configure minimum, optimal, and maximum ranges
+    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMIN, 
+                            nvinfer1::Dims4{1, dims.d[1], dims.d[2], dims.d[3]});
+    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kOPT, 
+                            nvinfer1::Dims4{MAX_BATCH_SIZE, dims.d[1], dims.d[2], dims.d[3]});
+    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMAX, 
+                            nvinfer1::Dims4{MAX_BATCH_SIZE, dims.d[1], dims.d[2], dims.d[3]});
+    config->addOptimizationProfile(profile);
+
+    auto engine = make_nvshared(builder->buildEngineWithConfig(*network, *config));
+    if(engine == nullptr) {
+        printf("Build engine failed.\n");
+        return false;
+    }
+
+    // serialize model to engine file
+    auto model_data = make_nvshared(engine->serialize());
+    FILE* f = fopen("deepsort.trtmodel", "wb");
+    fwrite(model_data->data(), 1, model_data->size(), f);
+    fclose(f);
+
+    printf("Build Done.\n");
+    return true;
 }
