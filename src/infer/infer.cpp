@@ -48,6 +48,7 @@ void Infer::forward() {
     this->yolo_thread = std::thread(&Infer::yolo_worker, this);
     this->deepsort_thread = std::thread(&Infer::deepsort_worker, this);
     this->imshow_thread = std::thread(&Infer::imshow_worker, this);
+
     this->video_thread.join();
     this->yolo_thread.join();
     this->deepsort_thread.join();
@@ -55,12 +56,12 @@ void Infer::forward() {
 
     auto end = std::chrono::high_resolution_clock::now();
     auto total = std::chrono::duration_cast<chrono::milliseconds>(end - start).count();
-    printf("%f ms per frame\n", total/(302.0));
+    printf("%f ms per frame\n", total/(this->frameCount*1.0));
 }
 
 void Infer::video_capture(const string& file) {
     cv::VideoCapture cap(file);
-    int frameCount = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT));
+    this->frameCount = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT));
     std::cout << "Total number of frames: " << frameCount << std::endl;
 
     if (!cap.isOpened()) {

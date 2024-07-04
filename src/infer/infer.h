@@ -30,14 +30,16 @@ private:
 
 private:
     const int MAX_LENGTH = 5;
+    int frameCount;
     std::atomic<bool> running_{false};
     std::mutex lock_;
+    std::mutex detect_lock_;
     std::mutex sort_lock_;
     std::condition_variable pic_cv_;
     std::condition_variable bbox_cv_;
     std::condition_variable sort_cv_;
-    std::queue<Job<cv::Mat>> pic_jobs_;
-    std::queue<Job<std::vector<DetectBox>>> bbox_jobs_;
+    // std::queue<Job<cv::Mat>> pic_jobs_;
+    // std::queue<Job<std::vector<DetectBox>>> bbox_jobs_;
     std::queue<cv::Mat> q_pics;
     std::queue<std::pair<cv::Mat, std::vector<DetectBox>>> q_detects;
     std::queue<std::pair<cv::Mat, std::vector<DetectBox>>> q_sorts;
