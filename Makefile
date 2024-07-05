@@ -35,7 +35,10 @@ include_paths := src		\
 	$(cv_dir)               \
 	$(pb_home)/include/     \
 	/usr/include/eigen3     \
-	./src/deepsort/include
+	./src/deepsort/include	\
+	./src/utils		\
+	./src/yolo		\
+	./src/infer
 
 library_paths := $(cuda_home)/lib64 $(trt_home)/lib $(pb_home)/lib $(syslib)
 
