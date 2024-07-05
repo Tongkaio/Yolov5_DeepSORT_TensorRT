@@ -21,6 +21,7 @@ void Infer::forward() {
 
     this->running = true;
     this->frameCount = 0;
+
     this->video_thread = std::thread(&Infer::video_worker, this, this->video);
     this->yolo_thread = std::thread(&Infer::yolo_worker, this);
     this->deepsort_thread = std::thread(&Infer::deepsort_worker, this);
