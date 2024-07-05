@@ -3,9 +3,11 @@
 
 #include <cuda_runtime.h>
 #include <NvInferRuntime.h>
+#include <opencv2/opencv.hpp>
 #include <vector>
 #include <string>
 #include <memory>
+#include "deepsort.h"
 
 #define checkRuntime(op)  __check_cuda_runtime((op), #op, __FILE__, __LINE__)
 
@@ -33,5 +35,7 @@ std::shared_ptr<_T> make_nvshared(_T* ptr);
 bool exists(const std::string& path);
 
 std::vector<unsigned char> load_file(const std::string& file);
+
+void draw_bboxs(cv::Mat& image, std::vector<DetectBox>& allDetections);
 
 #endif // UTILS_H

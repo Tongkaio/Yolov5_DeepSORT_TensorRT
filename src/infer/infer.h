@@ -5,7 +5,8 @@
 #include <future>
 #include <opencv2/opencv.hpp>
 #include "yolo.h"
-
+#include "deepsort.h"
+#include "utils.h"
 
 class Infer {
 public:
@@ -26,6 +27,7 @@ private:
 private:
     const int MAX_LENGTH = 5;
     int frameCount;
+    std::atomic<bool> running{false};
     std::atomic<bool> done1{false};
     std::atomic<bool> done2{false};
     std::atomic<bool> done3{false};
