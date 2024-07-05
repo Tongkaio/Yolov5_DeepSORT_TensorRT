@@ -1,7 +1,7 @@
 构建 docker 镜像：
 ```shell
 cd docker
-docker build -t tongkai2023/cuda11.2.2-torch1.9.1-py36-trt8.6.1-opencv4.5.4:0.1 .
+docker build -t tongkai2023/cuda11.2.2-torch1.9.1-py38-trt8.6.1-opencv4.5.4:0.1 .
 ```
 
 打开x服务器访问控制：
@@ -29,7 +29,7 @@ docker run -it \
 -e QT_X11_NO_MITSHM=1 \
 -e PYTHONIOENCODING=utf-8 \
 --mount type=bind,src=/tmp/.X11-unix,dst=/tmp/.X11-unix \
-tongkai2023/cuda11.2.2-torch1.9.1-py36-trt8.6.1-opencv4.5.4:0.1 \
+tongkai2023/cuda11.2.2-torch1.9.1-py38-trt8.6.1-opencv4.5.4:0.1 \
 bash
 ```
 
