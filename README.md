@@ -38,11 +38,11 @@ make run
 
 # 文件说明
 
-Infer，Yolo，和 DeepSORT 使用接口模式和 RAII 进行封装：
- - [infer.h](src/infer/infer.h)， [yolo.h](src/yolo/yolo.h)，[deepsort.h](src/deepsort/include/deepsort.h) 仅暴露 `create_*` 和**推理**接口
- - 使用 `create_*` 创建对象实例，将自动解析 onnx 文件，生成 engine 并加载
+- Infer，Yolo，和 DeepSORT 使用接口模式和 RAII 进行封装：
+  - [infer.h](src/infer/infer.h)， [yolo.h](src/yolo/yolo.h)，[deepsort.h](src/deepsort/include/deepsort.h) 仅暴露 `create_*` 和**推理**接口
+  - 使用 `create_*` 创建对象实例，将自动解析 onnx 文件，生成 engine 并加载
 
-[infer.cpp](src/infer/infer.cpp): 分四个线程，两两之间互为**生产者-消费者**关系：
+- [infer.cpp](src/infer/infer.cpp): 分四个线程，两两之间互为**生产者-消费者**关系：
 
 ![Alt text](assets/thread.png)
 
