@@ -27,6 +27,7 @@ private:
 private:
     const int MAX_LENGTH = 5;
     int frameCount;
+    int FRAME;
     std::atomic<bool> running{false};
     std::atomic<bool> done1{false};
     std::atomic<bool> done2{false};

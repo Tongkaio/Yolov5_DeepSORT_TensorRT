@@ -20,7 +20,7 @@ void Infer::forward() {
     auto start = std::chrono::high_resolution_clock::now();
 
     this->running = true;
-
+    this->frameCount = 0;
     this->video_thread = std::thread(&Infer::video_worker, this, this->video);
     this->yolo_thread = std::thread(&Infer::yolo_worker, this);
     this->deepsort_thread = std::thread(&Infer::deepsort_worker, this);
@@ -33,15 +33,15 @@ void Infer::forward() {
 
     auto end = std::chrono::high_resolution_clock::now();
     auto total = std::chrono::duration_cast<chrono::milliseconds>(end - start).count();
-    printf("%f ms per frame\n", total/(this->frameCount*1.0));
+
+    printf("Processd %d/%d frames, %f ms per frame.\n", frameCount, FRAME, total/(frameCount*1.0));
 }
 
 void Infer::video_worker(const string& file) {
 
     cv::VideoCapture cap(file);
 
-    this->frameCount = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT));
-    std::cout << "Total number of frames: " << frameCount << std::endl;
+    this->FRAME = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT));
 
     if (!cap.isOpened()) {
         std::cerr << "Error opening video file" << std::endl;
@@ -141,6 +141,7 @@ void Infer::imshow_worker() {
         draw_bboxs(image_result, allDetections);
 
         cv::imshow("Result", image_result);
+        frameCount++;
         if (cv::waitKey(1) == 27) {
             std::cout << "Esc key is pressed by user. Stopping the video." << std::endl;
             running = false;
