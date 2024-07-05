@@ -144,6 +144,9 @@ void Infer::imshow_worker() {
         if (cv::waitKey(1) == 27) {
             std::cout << "Esc key is pressed by user. Stopping the video." << std::endl;
             running = false;
+            cv1.notify_all();
+            cv2.notify_all();
+            cv3.notify_all();
             break;
         }
         this_thread::yield();
