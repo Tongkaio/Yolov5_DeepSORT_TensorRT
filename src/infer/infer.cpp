@@ -40,11 +40,10 @@ Infer::~Infer() {
 }
 
 void Infer::forward() {
-    this->running_ = true;
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    this->video_thread = std::thread(&Infer::video_capture, this, this->video);
+    this->video_thread = std::thread(&Infer::video_worker, this, this->video);
     this->yolo_thread = std::thread(&Infer::yolo_worker, this);
     this->deepsort_thread = std::thread(&Infer::deepsort_worker, this);
     this->imshow_thread = std::thread(&Infer::imshow_worker, this);
@@ -59,8 +58,10 @@ void Infer::forward() {
     printf("%f ms per frame\n", total/(this->frameCount*1.0));
 }
 
-void Infer::video_capture(const string& file) {
+void Infer::video_worker(const string& file) {
+
     cv::VideoCapture cap(file);
+
     this->frameCount = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT));
     std::cout << "Total number of frames: " << frameCount << std::endl;
 
@@ -70,102 +71,119 @@ void Infer::video_capture(const string& file) {
     }
 
     cv::Mat image;
-    while (running_) {
-        if (!cap.read(image)) {
-            running_ = false;
-            break;
-        }
+    while (cap.read(image)) {
         {
-            std::unique_lock<std::mutex> l(this->lock_);
-            this->pic_cv_.wait(l, [&](){
-                return !running_ || this->q_pics.size() < this->MAX_LENGTH;
-            });
-            
+            std::unique_lock<std::mutex> lock1(this->mtx1);
+            this->cv1.wait(lock1, [&](){ return this->q_pics.size() < this->MAX_LENGTH; });
             this->q_pics.push(image.clone());  // 创建副本并推入队列
         }
+        cv1.notify_one();  // 通知 yolo_worker 有新的数据
         this_thread::yield();
     }
+
+    done1 = true;
+    cv1.notify_one();  // 通知 yolo_worker 已完成
     cap.release();
 }
 
 void Infer::yolo_worker() {
-    while (running_) {
-        if (!this->q_pics.empty()) {
-            {
-                std::unique_lock<std::mutex> l(this->lock_);
-                std::unique_lock<std::mutex> l2(this->sort_lock_);
-                cv::Mat image = this->q_pics.front();
-                this->q_pics.pop();
-                this->pic_cv_.notify_one();
-                std::vector<DetectBox> allDetections;
-                this->yolo->detect(image, allDetections);
-                this->bbox_cv_.wait(l2, [&](){
-                    return !running_ || this->q_detects.size() < this->MAX_LENGTH;
-                });
-                q_detects.push({image, allDetections});  // 创建副本并推入队列
-            }
+    while (true) {
+        std::unique_lock<std::mutex> lock1(this->mtx1);
+        this->cv1.wait(lock1, [&](){ return !this->q_pics.empty() || done1; });
+
+        if (q_pics.empty() && done1) break;
+
+        cv::Mat image = this->q_pics.front();
+        this->q_pics.pop();
+        if (!done1) this->cv1.notify_one();  // 通知 video_worker 队列不满
+        lock1.unlock();
+
+        std::vector<DetectBox> allDetections;
+
+        this->yolo->detect(image, allDetections);
+
+        {
+            std::unique_lock<std::mutex> lock2(this->mtx2);
+            this->cv2.wait(lock2, [&](){ return q_detects.size() < this->MAX_LENGTH; });
+            q_detects.push({image, allDetections});  // 创建副本并推入队列
         }
+        cv2.notify_one();
         this_thread::yield();
     }
+
+    done2 = true;
+    cv2.notify_one();
 }
 
 void Infer::deepsort_worker() {
-    while (running_) {
-        if (!this->q_detects.empty()) {
-            {
-                unique_lock<mutex> l(this->sort_lock_);
-                cv::Mat image = this->q_detects.front().first;
-                std::vector<DetectBox> allDetections = this->q_detects.front().second;
-                this->q_detects.pop();
-                this->bbox_cv_.notify_one();
-                DS->sort(image, allDetections);
-                this->sort_cv_.wait(l, [&](){
-                    return !running_ || this->q_sorts.size() < this->MAX_LENGTH;
-                });
-                q_sorts.push({image.clone(), allDetections});  // 创建副本并推入队列
-            }
+    while (true) {
+        std::unique_lock<std::mutex> lock2(this->mtx2);
+        this->cv2.wait(lock2, [&](){
+            return !this->q_detects.empty() || done2;
+        });
+
+        if (q_detects.empty() && done2) break;
+
+        cv::Mat image = this->q_detects.front().first;
+        std::vector<DetectBox> allDetections = this->q_detects.front().second;
+        this->q_detects.pop();
+        if (!done2) this->cv2.notify_one();  // 通知 yolo_worker 队列不满
+        lock2.unlock();
+
+        DS->sort(image, allDetections);
+
+        {
+            std::unique_lock<std::mutex> lock3(this->mtx3);
+            cv3.wait(lock3, [&](){ return this->q_sorts.size() < this->MAX_LENGTH; });
+            q_sorts.push({image.clone(), allDetections});  // 创建副本并推入队列
         }
+        cv3.notify_one();
         this_thread::yield();
-    }    
+    }  
+
+    done3 = true;
+    cv3.notify_one();
 }
 
 void Infer::imshow_worker() {
-    while (running_) {
-        if (!this->q_sorts.empty()) {
-            cv::Mat image_result;
-            std::vector<DetectBox> allDetections;
-            {
-                std::unique_lock<std::mutex> l(this->sort_lock_);
-                image_result = this->q_sorts.front().first;
-                allDetections = this->q_sorts.front().second;
-                this->q_sorts.pop();
-                this->sort_cv_.notify_one();   
-            }
-            for (auto box : allDetections) {
-                float left = box.x1;
-                float top = box.y1;
-                float right = box.x2;
-                float bottom = box.y2;
-                int class_label = box.classID;
-                int track_label = box.trackID;
-                float confidence = box.confidence;
-                cv::Scalar color;
-                tie(color[0], color[1], color[2]) = random_color(class_label);
-                cv::rectangle(image_result, cv::Point(left, top), cv::Point(right, bottom), color, 3);
+    while (true) {
+        std::unique_lock<std::mutex> lock3(this->mtx3);
 
-                auto name      = cocolabels[class_label];
-                auto caption   = cv::format("%s ID: %d", name, track_label);
-                int text_width = cv::getTextSize(caption, 0, 1, 2, nullptr).width + 10;
-                cv::rectangle(image_result, cv::Point(left-3, top-33), cv::Point(left + text_width, top), color, -1);
-                cv::putText(image_result, caption, cv::Point(left, top-5), 0, 1, cv::Scalar::all(0), 2, 16);
-            }
-            cv::imshow("Result", image_result);
-            if (cv::waitKey(1) == 27) {
-                std::cout << "Esc key is pressed by user. Stopping the video." << std::endl;
-                running_ = false;
-                break;
-            }
+        cv3.wait(lock3, [&](){ return !this->q_sorts.empty() || done3; });
+
+        if (this->q_sorts.empty() && done3) break;
+
+        cv::Mat image_result = this->q_sorts.front().first;
+        std::vector<DetectBox> allDetections = this->q_sorts.front().second;
+        this->q_sorts.pop();
+        lock3.unlock();
+        if (!done3) this->cv3.notify_one();  // 通知 deepsort_worker 队列不满
+        
+        // draw bbox
+        for (auto box : allDetections) {
+            float left = box.x1;
+            float top = box.y1;
+            float right = box.x2;
+            float bottom = box.y2;
+            int class_label = box.classID;
+            int track_label = box.trackID;
+            float confidence = box.confidence;
+            cv::Scalar color;
+            tie(color[0], color[1], color[2]) = random_color(class_label);
+            cv::rectangle(image_result, cv::Point(left, top), cv::Point(right, bottom), color, 3);
+
+            auto name      = cocolabels[class_label];
+            auto caption   = cv::format("%s ID: %d", name, track_label);
+            int text_width = cv::getTextSize(caption, 0, 1, 2, nullptr).width + 10;
+            cv::rectangle(image_result, cv::Point(left-3, top-33), cv::Point(left + text_width, top), color, -1);
+            cv::putText(image_result, caption, cv::Point(left, top-5), 0, 1, cv::Scalar::all(0), 2, 16);
+        }
+
+        cv::imshow("Result", image_result);
+        if (cv::waitKey(1) == 27) {
+            std::cout << "Esc key is pressed by user. Stopping the video." << std::endl;
+            break;
         }
         this_thread::yield();
-    }    
+    }
 }
