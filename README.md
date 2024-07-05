@@ -9,7 +9,7 @@
 - 本项目是 [Yolo-DeepSORT](https://github.com/ZQPei/deep_sort_pytorch) 的 C++ 实现，使用 TensorRT 进行推理；
 - 提供了 dockerfile 以快速搭建开发环境；
 - 只需要提供 onnx 文件，在创建模型实例时会自动解析 onnx 并序列化出 engine 文件（*.trtmodel）到 workspace 目录下；
-- 我的另一个 PyTorch 版本的实现：[Yolov5_Deepsort_Person_Count](https://github.com/Tongkaio/Yolov5_Deepsort_Person_Count)
+- 我的另一个 PyTorch 版本的实现，含撞线检测，可对行人进行计数：[Yolov5_Deepsort_Person_Count](https://github.com/Tongkaio/Yolov5_Deepsort_Person_Count)
 
 # 快速使用
 ## 💻 环境配置
@@ -48,7 +48,7 @@ make run
 
 # 文件说明
 
-- Infer，Yolo，和 DeepSORT 使用接口模式和 RAII 进行封装：
+- Infer、Yolo 和 DeepSORT 使用接口模式和 RAII 进行封装：
   - [infer.h](src/infer/infer.h)， [yolo.h](src/yolo/yolo.h)，[deepsort.h](src/deepsort/include/deepsort.h) 仅暴露 `create_*` 和**推理**接口
   - 使用 `create_*` 创建对象实例，将自动解析 onnx 文件，生成 engine 并加载
 
