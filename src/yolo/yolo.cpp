@@ -42,14 +42,13 @@ Yolo::Yolo(std::string modelPath, int input_batch, int input_channel, int input_
     this->input_numel = input_batch * input_channel * input_height * input_width;
     checkRuntime(cudaMallocHost(&this->input_data_host, this->input_numel * sizeof(float)));
     checkRuntime(cudaMalloc(&this->input_data_device, this->input_numel * sizeof(float)));
-    
 }
+
 Yolo::~Yolo() {
     checkRuntime(cudaStreamDestroy(stream));
     checkRuntime(cudaFreeHost(input_data_host));
     checkRuntime(cudaFree(input_data_device));
 }
-
 
 void Yolo::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
     // Resize the image using bilinear interpolation
@@ -196,9 +195,7 @@ void Yolo::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
     allDetections.shrink_to_fit();
     checkRuntime(cudaFreeHost(output_data_host));
     checkRuntime(cudaFree(output_data_device));
-    // deepsort
 }
-
 
 // build yolov5s engine, save to workspace/yolov5s.trtmodel
 bool build_yolov5_model() {

@@ -13,6 +13,8 @@ public:
     Infer(const std::string& video, const std::string& yolo_engine, const std::string& deepsort_engine);
     ~Infer();
     void forward();
+
+private:
     void video_worker(const std::string& file);
     void yolo_worker();
     void deepsort_worker();
