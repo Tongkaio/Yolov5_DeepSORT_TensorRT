@@ -1,5 +1,7 @@
 #include "yolo.h"
 
+#include <onnx-tensorrt/NvOnnxParser.h>
+
 // ref: https://cocodataset.org/#home
 const char* cocolabels[] = {
     "person", "bicycle", "car", "motorcycle", "airplane",
@@ -17,41 +19,126 @@ const char* cocolabels[] = {
     "scissors", "teddy bear", "hair drier", "toothbrush"
 };
 
-Yolo::Yolo(std::string modelPath, int input_batch, int input_channel, int input_height, int input_width, TRTLogger& logger) {
-    auto yolov5_engine_data = load_file(modelPath);
-    auto runtime   = make_nvshared(nvinfer1::createInferRuntime(logger));
-    this->engine = make_nvshared(runtime->deserializeCudaEngine(yolov5_engine_data.data(), yolov5_engine_data.size()));
-    if(engine == nullptr){
-        printf("Deserialize cuda engine failed.\n");
-        runtime->destroy();
-        return;
-    }
-    if (engine->getNbBindings() != 2) {
-        printf("ONNX export error: Must have exactly 1 input and "
-            "1 output, but you have: %d outputs.\n", 
-            engine->getNbBindings() - 1);
-        return;
-    }
-    this->stream = nullptr;
-    checkRuntime(cudaStreamCreate(&this->stream));
-    execution_context = make_nvshared(engine->createExecutionContext());
+class YoloImpl : public Yolo {
+public:    
+    YoloImpl(char* modelPath, int input_batch, int input_channel, int input_height, int input_width, TRTLogger* logger);
+    ~YoloImpl();
+
+public:
+    void detect(cv::Mat& image, std::vector<DetectBox>& allDetections) override;
+    bool build_model();
+    bool load_model();
+
+private:
+    const char* modelPath;
+    int input_batch;
+    int input_channel;
+    int input_height;
+    int input_width;
+    int input_numel;
+    float* input_data_host;
+    float* input_data_device;
+
+private:
+    std::shared_ptr<nvinfer1::ICudaEngine> engine;
+    std::shared_ptr<nvinfer1::IExecutionContext> execution_context;
+    cudaStream_t stream;
+    TRTLogger* logger;
+};
+
+YoloImpl::YoloImpl(char* modelPath, int input_batch, int input_channel, int input_height, int input_width, TRTLogger* logger) {
+    this->modelPath = modelPath;
     this->input_batch = input_batch;
     this->input_channel = input_channel;
     this->input_height = input_height;
     this->input_width = input_width;
     this->input_numel = input_batch * input_channel * input_height * input_width;
-    checkRuntime(cudaMallocHost(&this->input_data_host, this->input_numel * sizeof(float)));
-    checkRuntime(cudaMalloc(&this->input_data_device, this->input_numel * sizeof(float)));
-    
+    this->logger = logger;
 }
-Yolo::~Yolo() {
+
+YoloImpl::~YoloImpl() {
     checkRuntime(cudaStreamDestroy(stream));
     checkRuntime(cudaFreeHost(input_data_host));
     checkRuntime(cudaFree(input_data_device));
 }
 
+// build yolov5s engine, save to workspace/modelPath
+bool YoloImpl::build_model() {
 
-void Yolo::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
+    if(exists(this->modelPath)){
+        printf("%s has exists.\n", this->modelPath);
+        return true;
+    }
+
+    // make_nvshared, destroy automatically
+    auto builder = make_nvshared(nvinfer1::createInferBuilder(*logger));
+    auto config = make_nvshared(builder->createBuilderConfig());
+    auto network = make_nvshared(builder->createNetworkV2(1));
+
+    // parse network data from onnx file to `network`
+    auto parser = make_nvshared(nvonnxparser::createParser(*network, *logger));
+    if(!parser->parseFromFile("yolov5s.onnx", 1)){
+        printf("Failed to parse yolov5s.onnx\n");
+        return false;
+    }
+    
+    int maxBatchSize = 10;
+    printf("Workspace Size = %.2f MB\n", (1 << 28) / 1024.0f / 1024.0f);
+    config->setMaxWorkspaceSize(1 << 28);
+
+    auto profile = builder->createOptimizationProfile();
+    auto input_tensor = network->getInput(0);
+    auto input_dims = input_tensor->getDimensions();
+    
+    // configure minimum, optimal, and maximum ranges
+    input_dims.d[0] = 1;
+    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMIN, input_dims);
+    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kOPT, input_dims);
+    input_dims.d[0] = maxBatchSize;
+    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMAX, input_dims);
+    config->addOptimizationProfile(profile);
+
+    auto engine = make_nvshared(builder->buildEngineWithConfig(*network, *config));
+    if(engine == nullptr){
+        printf("Build engine failed.\n");
+        return false;
+    }
+
+    // serialize model to engine file
+    auto model_data = make_nvshared(engine->serialize());
+    FILE* f = fopen(this->modelPath, "wb");
+    fwrite(model_data->data(), 1, model_data->size(), f);
+    fclose(f);
+
+    printf("Build Done.\n");
+    return true;
+}
+
+bool YoloImpl::load_model() {
+
+    auto yolov5_engine_data = load_file(this->modelPath);
+    auto runtime   = make_nvshared(nvinfer1::createInferRuntime(*(this->logger)));
+    this->engine = make_nvshared(runtime->deserializeCudaEngine(yolov5_engine_data.data(), yolov5_engine_data.size()));
+    if(engine == nullptr){
+        printf("Deserialize cuda engine failed.\n");
+        runtime->destroy();
+        return false;
+    }
+    if (engine->getNbBindings() != 2) {
+        printf("ONNX export error: Must have exactly 1 input and "
+            "1 output, but you have: %d outputs.\n", 
+            engine->getNbBindings() - 1);
+        return false;
+    }
+    this->stream = nullptr;
+    checkRuntime(cudaStreamCreate(&this->stream));
+    this->execution_context = make_nvshared(engine->createExecutionContext());
+    checkRuntime(cudaMallocHost(&this->input_data_host, this->input_numel * sizeof(float)));
+    checkRuntime(cudaMalloc(&this->input_data_device, this->input_numel * sizeof(float)));
+    return true;
+}
+
+void YoloImpl::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
     // Resize the image using bilinear interpolation
     float scale_x = input_width / (float)image.cols;
     float scale_y = input_height / (float)image.rows;
@@ -109,7 +196,7 @@ void Yolo::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
 
     // decode box：Restore predictions from different scales 
     // to the original input image(bbox, probability, confidence）
-    vector<vector<float>> bboxes;
+    std::vector<std::vector<float>> bboxes;
     float confidence_threshold = 0.25;
     float nms_threshold = 0.5;
     for(int i = 0; i < output_numbox; ++i){
@@ -149,13 +236,13 @@ void Yolo::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
     }
 
     // nms
-    std::sort(bboxes.begin(), bboxes.end(), [](vector<float>& a, vector<float>& b){return a[5] > b[5];});
+    std::sort(bboxes.begin(), bboxes.end(), [](std::vector<float>& a, std::vector<float>& b){return a[5] > b[5];});
     std::vector<bool> remove_flags(bboxes.size());
 
     allDetections.clear();
     allDetections.reserve(bboxes.size());
 
-    auto iou = [](const vector<float>& a, const vector<float>& b){
+    auto iou = [](const std::vector<float>& a, const std::vector<float>& b){
         float cross_left   = std::max(a[0], b[0]);
         float cross_top    = std::max(a[1], b[1]);
         float cross_right  = std::min(a[2], b[2]);
@@ -196,59 +283,23 @@ void Yolo::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
     allDetections.shrink_to_fit();
     checkRuntime(cudaFreeHost(output_data_host));
     checkRuntime(cudaFree(output_data_device));
-    // deepsort
 }
 
+std::shared_ptr<Yolo> create_yolo(char* modelPath, 
+                                  int input_batch,
+                                  int input_channel,
+                                  int input_height,
+                                  int input_width,
+                                  TRTLogger* logger) {
 
-// build yolov5s engine, save to workspace/yolov5s.trtmodel
-bool build_yolov5_model() {
-    if(exists("yolov5s.trtmodel")){
-        printf("yolov5s.trtmodel has exists.\n");
-        return true;
+    std::shared_ptr<YoloImpl> instance(new YoloImpl(modelPath, input_batch, input_channel, input_height, input_width, logger));
+    if (!instance->build_model()) {
+        instance.reset();
+        return instance;
     }
-
-    TRTLogger logger;
-
-    // make_nvshared, destroy automatically
-    auto builder = make_nvshared(nvinfer1::createInferBuilder(logger));
-    auto config = make_nvshared(builder->createBuilderConfig());
-    auto network = make_nvshared(builder->createNetworkV2(1));
-
-    // parse network data from onnx file to `network`
-    auto parser = make_nvshared(nvonnxparser::createParser(*network, logger));
-    if(!parser->parseFromFile("yolov5s.onnx", 1)){
-        printf("Failed to parse yolov5s.onnx\n");
-        return false;
+    if (!instance->load_model()) {
+        instance.reset();
+        return instance;
     }
-    
-    int maxBatchSize = 10;
-    printf("Workspace Size = %.2f MB\n", (1 << 28) / 1024.0f / 1024.0f);
-    config->setMaxWorkspaceSize(1 << 28);
-
-    auto profile = builder->createOptimizationProfile();
-    auto input_tensor = network->getInput(0);
-    auto input_dims = input_tensor->getDimensions();
-    
-    // configure minimum, optimal, and maximum ranges
-    input_dims.d[0] = 1;
-    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMIN, input_dims);
-    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kOPT, input_dims);
-    input_dims.d[0] = maxBatchSize;
-    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMAX, input_dims);
-    config->addOptimizationProfile(profile);
-
-    auto engine = make_nvshared(builder->buildEngineWithConfig(*network, *config));
-    if(engine == nullptr){
-        printf("Build engine failed.\n");
-        return false;
-    }
-
-    // serialize model to engine file
-    auto model_data = make_nvshared(engine->serialize());
-    FILE* f = fopen("yolov5s.trtmodel", "wb");
-    fwrite(model_data->data(), 1, model_data->size(), f);
-    fclose(f);
-
-    printf("Build Done.\n");
-    return true;
+    return instance;
 }

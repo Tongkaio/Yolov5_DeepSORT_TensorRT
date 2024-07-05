@@ -1,8 +1,49 @@
 #include "deepsort.h"
-
+#include "model.hpp"
 #include "utils.h"
+#include "tracker.h"
+#include "featuretensor.h"
 
-DeepSort::DeepSort(std::string modelPath, int batchSize, int featureDim, int gpuID, ILogger* gLogger) {
+using std::vector;
+using nvinfer1::ILogger;
+
+class DeepSortImpl : public DeepSort {
+public:    
+    DeepSortImpl(char* modelPath, int batchSize, int featureDim, int gpuID, ILogger* gLogger);
+    ~DeepSortImpl();
+
+public:
+    bool build_model();
+    bool load_model();
+    void sort(cv::Mat& frame, vector<DetectBox>& dets) override;
+
+private:
+    void sort(cv::Mat& frame, DETECTIONS& detections);
+    void sort(cv::Mat& frame, DETECTIONSV2& detectionsv2);    
+    void sort(vector<DetectBox>& dets);
+    void sort(DETECTIONS& detections);
+    
+
+private:
+    char* enginePath;
+    int batchSize;
+    int featureDim;
+    cv::Size imgShape;
+    float confThres;
+    float nmsThres;
+    int maxBudget;
+    float maxCosineDist;
+
+private:
+    vector<RESULT_DATA> result;
+    vector<std::pair<CLSCONF, DETECTBOX>> results;
+    tracker* objTracker;
+    FeatureTensor* featureExtractor;
+    ILogger* gLogger;
+    int gpuID;
+};
+
+DeepSortImpl::DeepSortImpl(char* modelPath, int batchSize, int featureDim, int gpuID, ILogger* gLogger) {
     this->gpuID = gpuID;
     this->enginePath = modelPath;
     this->batchSize = batchSize;
@@ -11,24 +52,25 @@ DeepSort::DeepSort(std::string modelPath, int batchSize, int featureDim, int gpu
     this->maxBudget = 100;
     this->maxCosineDist = 0.2;
     this->gLogger = gLogger;
-    init();
 }
 
-void DeepSort::init() {
+DeepSortImpl::~DeepSortImpl() {
+    delete objTracker;
+}
+
+bool DeepSortImpl::load_model() {
     objTracker = new tracker(maxCosineDist, maxBudget);
     featureExtractor = new FeatureTensor(batchSize, imgShape, featureDim, gpuID, gLogger);
-    int ret = enginePath.find(".onnx");
+    std::string enginePathStr(enginePath);
+    int ret = enginePathStr.find(".onnx");
     if (ret != -1)
         featureExtractor->loadOnnx(enginePath);
     else
         featureExtractor->loadEngine(enginePath);
+    return true;
 }
 
-DeepSort::~DeepSort() {
-    delete objTracker;
-}
-
-void DeepSort::sort(cv::Mat& frame, vector<DetectBox>& dets) {
+void DeepSortImpl::sort(cv::Mat& frame, vector<DetectBox>& dets) {
     // preprocess Mat -> DETECTION
     DETECTIONS detections;
     vector<CLSCONF> clsConf;
@@ -62,7 +104,7 @@ void DeepSort::sort(cv::Mat& frame, vector<DetectBox>& dets) {
     }
 }
 
-void DeepSort::sort(cv::Mat& frame, DETECTIONS& detections) {
+void DeepSortImpl::sort(cv::Mat& frame, DETECTIONS& detections) {
     bool flag = featureExtractor->getRectsFeature(frame, detections);
     if (flag) {
         objTracker->predict();
@@ -76,7 +118,7 @@ void DeepSort::sort(cv::Mat& frame, DETECTIONS& detections) {
     }
 }
 
-void DeepSort::sort(cv::Mat& frame, DETECTIONSV2& detectionsv2) {
+void DeepSortImpl::sort(cv::Mat& frame, DETECTIONSV2& detectionsv2) {
     std::vector<CLSCONF>& clsConf = detectionsv2.first;
     DETECTIONS& detections = detectionsv2.second;
     bool flag = featureExtractor->getRectsFeature(frame, detections);
@@ -94,7 +136,7 @@ void DeepSort::sort(cv::Mat& frame, DETECTIONSV2& detectionsv2) {
     }
 }
 
-void DeepSort::sort(vector<DetectBox>& dets) {
+void DeepSortImpl::sort(vector<DetectBox>& dets) {
     DETECTIONS detections;
     for (DetectBox i : dets) {
         DETECTBOX box(i.x1, i.y1, i.x2-i.x1, i.y2-i.y1);
@@ -114,7 +156,7 @@ void DeepSort::sort(vector<DetectBox>& dets) {
     }
 }
 
-void DeepSort::sort(DETECTIONS& detections) {
+void DeepSortImpl::sort(DETECTIONS& detections) {
     bool flag = featureExtractor->getRectsFeature(detections);
     if (flag) {
         objTracker->predict();
@@ -129,9 +171,9 @@ void DeepSort::sort(DETECTIONS& detections) {
 }
 
 // build deepsort engine, save to workspace/deepsort.trtmodel
-bool build_deepsort_model() {
-    if(exists("deepsort.trtmodel")) {
-        printf("deepsort.trtmodel has exists.\n");
+bool DeepSortImpl::build_model() {
+    if(exists(enginePath)) {
+        printf("%s has exists.\n", enginePath);
         return true;
     }
 
@@ -179,10 +221,28 @@ bool build_deepsort_model() {
 
     // serialize model to engine file
     auto model_data = make_nvshared(engine->serialize());
-    FILE* f = fopen("deepsort.trtmodel", "wb");
+    FILE* f = fopen(enginePath, "wb");
     fwrite(model_data->data(), 1, model_data->size(), f);
     fclose(f);
 
     printf("Build Done.\n");
     return true;
+}
+
+std::shared_ptr<DeepSort> create_deepsort(char* modelPath,
+                                          int batchSize,
+                                          int featureDim,
+                                          int gpuID,
+                                          ILogger* logger) {
+    
+    shared_ptr<DeepSortImpl> instance(new DeepSortImpl(modelPath, batchSize, featureDim, gpuID, logger));
+    if (!instance->build_model()) {
+        instance.reset();
+        return instance;
+    }
+    if (!instance->load_model()) {
+        instance.reset();
+        return instance;
+    }
+    return instance;
 }
