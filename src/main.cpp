@@ -13,7 +13,7 @@ int main(){
         return -1;
     }
 
-    // Inference
+    // 2. Inference
     infer->forward("test.mp4");
 
     return 0;
