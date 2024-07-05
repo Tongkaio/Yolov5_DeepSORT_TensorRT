@@ -1,5 +1,15 @@
-# Yolov5-DeepSort-TensorRT
-![Alt text](assets/demo.gif)
+# Yolov5-DeepSORT-TensorRT
+
+<div align=center>
+<img src="./assets/demo.gif"/>
+</div>
+
+# 引言
+
+- 本项目是 [Yolo-DeepSORT](https://github.com/ZQPei/deep_sort_pytorch) 的 C++ 实现，使用 TensorRT 进行推理；
+- 提供了 dockerfile 以快速搭建开发环境；
+- 只需要提供 onnx 文件，在创建模型实例时会自动解析 onnx 并序列化出 engine 文件（*.trtmodel）到 workspace 目录下；
+- 我的另一个 PyTorch 版本的实现：[Yolov5_Deepsort_Person_Count](https://github.com/Tongkaio/Yolov5_Deepsort_Person_Count)
 
 # 快速使用
 ## 💻 环境配置
@@ -42,7 +52,7 @@ make run
   - [infer.h](src/infer/infer.h)， [yolo.h](src/yolo/yolo.h)，[deepsort.h](src/deepsort/include/deepsort.h) 仅暴露 `create_*` 和**推理**接口
   - 使用 `create_*` 创建对象实例，将自动解析 onnx 文件，生成 engine 并加载
 
-- [infer.cpp](src/infer/infer.cpp): 分四个线程，两两之间互为**生产者-消费者**关系：
+- [infer.cpp](src/infer/infer.cpp): 分四个线程，两两之间为**生产者-消费者**关系：
 
 ![Alt text](assets/thread.png)
 
