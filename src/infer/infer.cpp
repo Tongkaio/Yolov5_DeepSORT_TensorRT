@@ -2,30 +2,92 @@
 
 #include <stdio.h>
 #include <iostream>
+#include <chrono>
+#include <string>
+#include <thread>
+#include <mutex>
+#include <future>
+#include <queue>
+#include "yolo.h"
+#include "deepsort.h"
+#include "datatype.h"
+#include "utils.h"
 
+class InferImpl : public Infer {
+public:
+    InferImpl(char* yolo_engine, char* deepsort_engine);
+    bool create_model();
+    void forward(const std::string& file) override;
 
-Infer::Infer(const std::string& video, const std::string& yolo_engine, const std::string& deepsort_engine) {
-    this->video = video;
-    this->yolo = new Yolo(yolo_engine, 1, 3, 640, 640, this->logger);
-    this->DS = new DeepSort(deepsort_engine, 128, 256, 0, &this->logger);
+private:
+    void video_worker(const std::string& file);
+    void yolo_worker();
+    void deepsort_worker();
+    void imshow_worker();
+
+private:
+    TRTLogger logger;
+    char* yolo_engine;
+    char* deepsort_engine;
+    std::shared_ptr<Yolo> yolo;
+    std::shared_ptr<DeepSort> DS;
+    std::string video;
+
+private:
+    const int MAX_LENGTH = 5;
+    int frameCount;
+    int FRAME;
+    std::atomic<bool> running{false};
+    std::atomic<bool> done1{false};
+    std::atomic<bool> done2{false};
+    std::atomic<bool> done3{false};
+    std::mutex mtx1;
+    std::mutex mtx2;
+    std::mutex mtx3;
+    std::condition_variable cv1;
+    std::condition_variable cv2;
+    std::condition_variable cv3;
+    std::queue<cv::Mat> q_pics;
+    std::queue<std::pair<cv::Mat, std::vector<DetectBox>>> q_detects;
+    std::queue<std::pair<cv::Mat, std::vector<DetectBox>>> q_sorts;
+    std::thread video_thread;
+    std::thread yolo_thread;
+    std::thread deepsort_thread;
+    std::thread imshow_thread;
+};
+
+InferImpl::InferImpl(char* yolo_engine, char* deepsort_engine) {
+    this->yolo_engine = yolo_engine;
+    this->deepsort_engine = deepsort_engine;
 }
 
-Infer::~Infer() {
-    delete this->yolo;
-    delete this->DS;
+bool InferImpl::create_model() {
+    this->yolo = create_yolo(this->yolo_engine, 1, 3, 640, 640, &this->logger);
+    if (this->yolo == nullptr) {
+        printf("Create Yolo failed.\n");
+        return false;
+    }
+    this->DS = create_deepsort(this->deepsort_engine, 128, 256, 0, &this->logger);
+    if (this->DS == nullptr) {
+        printf("Create Deepsort failed.\n");
+        return false;
+    }
+    return true;
 }
 
-void Infer::forward() {
+void InferImpl::forward(const std::string& file) {
+
+    this->video = file;
 
     auto start = std::chrono::high_resolution_clock::now();
 
     this->running = true;
     this->frameCount = 0;
 
-    this->video_thread = std::thread(&Infer::video_worker, this, this->video);
-    this->yolo_thread = std::thread(&Infer::yolo_worker, this);
-    this->deepsort_thread = std::thread(&Infer::deepsort_worker, this);
-    this->imshow_thread = std::thread(&Infer::imshow_worker, this);
+    this->video_thread = std::thread(&InferImpl::video_worker, this, this->video);
+    this->yolo_thread = std::thread(&InferImpl::yolo_worker, this);
+    this->deepsort_thread = std::thread(&InferImpl::deepsort_worker, this);
+    this->imshow_thread = std::thread(&InferImpl::imshow_worker, this);
 
     this->video_thread.join();
     this->yolo_thread.join();
@@ -33,12 +95,12 @@ void Infer::forward() {
     this->imshow_thread.join();
 
     auto end = std::chrono::high_resolution_clock::now();
-    auto total = std::chrono::duration_cast<chrono::milliseconds>(end - start).count();
+    auto total = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
     printf("Processd %d/%d frames, %f ms per frame.\n", frameCount, FRAME, total/(frameCount*1.0));
 }
 
-void Infer::video_worker(const string& file) {
+void InferImpl::video_worker(const std::string& file) {
 
     cv::VideoCapture cap(file);
 
@@ -58,7 +120,7 @@ void Infer::video_worker(const string& file) {
             this->q_pics.push(image.clone());  // 创建副本并推入队列
         }
         cv1.notify_one();  // 通知 yolo_worker 有新的数据
-        this_thread::yield();
+        std::this_thread::yield();
     }
 
     done1 = true;
@@ -66,7 +128,7 @@ void Infer::video_worker(const string& file) {
     cap.release();
 }
 
-void Infer::yolo_worker() {
+void InferImpl::yolo_worker() {
     while (running) {
         std::unique_lock<std::mutex> lock1(this->mtx1);
         this->cv1.wait(lock1, [&](){ return !this->q_pics.empty() || done1 || !running; });
@@ -89,14 +151,14 @@ void Infer::yolo_worker() {
             q_detects.push({image, allDetections});  // 创建副本并推入队列
         }
         cv2.notify_one();
-        this_thread::yield();
+        std::this_thread::yield();
     }
 
     done2 = true;
     cv2.notify_one();
 }
 
-void Infer::deepsort_worker() {
+void InferImpl::deepsort_worker() {
     while (running) {
         std::unique_lock<std::mutex> lock2(this->mtx2);
         this->cv2.wait(lock2, [&](){ return !this->q_detects.empty() || done2 || !running; });
@@ -118,14 +180,14 @@ void Infer::deepsort_worker() {
             q_sorts.push({image.clone(), allDetections});  // 创建副本并推入队列
         }
         cv3.notify_one();
-        this_thread::yield();
+        std::this_thread::yield();
     }  
 
     done3 = true;
     cv3.notify_one();
 }
 
-void Infer::imshow_worker() {
+void InferImpl::imshow_worker() {
     while (running) {
         std::unique_lock<std::mutex> lock3(this->mtx3);
 
@@ -151,6 +213,15 @@ void Infer::imshow_worker() {
             cv3.notify_all();
             break;
         }
-        this_thread::yield();
+        std::this_thread::yield();
     }
+}
+
+std::shared_ptr<Infer> create_infer(char* yolo_engine, char* deepsort_engine) {
+    std::shared_ptr<InferImpl> instance(new InferImpl(yolo_engine, deepsort_engine));
+    if (!instance->create_model()) {
+        instance.reset();
+        return instance;
+    }
+    return instance;
 }

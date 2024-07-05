@@ -109,7 +109,7 @@ void draw_bboxs(cv::Mat& image, std::vector<DetectBox>& allDetections) {
         int track_label = box.trackID;
         float confidence = box.confidence;
         cv::Scalar color;
-        tie(color[0], color[1], color[2]) = random_color(class_label);
+        std::tie(color[0], color[1], color[2]) = random_color(class_label);
         cv::rectangle(image, cv::Point(left, top), cv::Point(right, bottom), color, 3);
 
         auto name      = cocolabels[class_label];
