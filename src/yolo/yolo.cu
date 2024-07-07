@@ -1,6 +1,7 @@
 #include "yolo.h"
 
 #include <onnx-tensorrt/NvOnnxParser.h>
+#include <cuda_runtime.h>
 
 // ref: https://cocodataset.org/#home
 const char* cocolabels[] = {
@@ -28,6 +29,26 @@ public:
     void detect(cv::Mat& image, std::vector<DetectBox>& allDetections) override;
     bool build_model();
     bool load_model();
+
+private:
+    void postprocess(const std::string& device,
+                     const int& output_numel,
+                     const int& output_numbox,
+                     float* output_data_device,
+                     const int& num_classes,
+                     float* d2i,
+                     std::vector<DetectBox>& allDetections);
+    void postprocess_cpu(const int& output_numel,
+                         const int& output_numbox,
+                         float* output_data_device,
+                         const int& num_classes,
+                         float* d2i,
+                         std::vector<DetectBox>& allDetections);
+    void postprocess_gpu(const int& output_numbox,
+                         float* output_data_device,
+                         const int& num_classes,
+                         float* d2i,
+                         std::vector<DetectBox>& allDetections);
 
 private:
     const char* modelPath;
@@ -154,7 +175,8 @@ void YoloImpl::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
     cv::invertAffineTransform(m2x3_i2d, m2x3_d2i);  // Compute an inverse affine transformation
 
     cv::Mat input_image(input_height, input_width, CV_8UC3);
-    cv::warpAffine(image, input_image, m2x3_i2d, input_image.size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar::all(114));  // Translate, scale, and rotate
+    // Translate, scale
+    cv::warpAffine(image, input_image, m2x3_i2d, input_image.size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar::all(114));
 
     int image_area = input_image.cols * input_image.rows;
     unsigned char* pimage = input_image.data;
@@ -167,7 +189,6 @@ void YoloImpl::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
         *phost_g++ = pimage[1] / 255.0f;
         *phost_b++ = pimage[2] / 255.0f;
     }
-    ///////////////////////////////////////////////////
 
     checkRuntime(cudaMemcpyAsync(this->input_data_device, this->input_data_host, this->input_numel * sizeof(float), cudaMemcpyHostToDevice, stream));
 
@@ -177,9 +198,8 @@ void YoloImpl::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
     int output_numprob = output_dims.d[2];
     int num_classes = output_numprob - 5;
     int output_numel = input_batch * output_numbox * output_numprob;
-    float* output_data_host = nullptr;
+
     float* output_data_device = nullptr;
-    checkRuntime(cudaMallocHost(&output_data_host, sizeof(float) * output_numel));
     checkRuntime(cudaMalloc(&output_data_device, sizeof(float) * output_numel));
 
     // Specify the data input size used during the current inference
@@ -190,7 +210,53 @@ void YoloImpl::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
 
     float* bindings[] = {input_data_device, output_data_device};
     bool success      = execution_context->enqueueV2((void**)bindings, stream, nullptr);
+    checkRuntime(cudaStreamSynchronize(stream));
 
+    this->postprocess("gpu",
+                      output_numel,
+                      output_numbox,
+                      output_data_device,
+                      num_classes,
+                      d2i,
+                      allDetections);
+    checkRuntime(cudaFree(output_data_device));
+}
+
+void YoloImpl::postprocess(const std::string& device,
+                           const int& output_numel,
+                           const int& output_numbox,
+                           float* output_data_device,
+                           const int& num_classes,
+                           float* d2i,
+                           std::vector<DetectBox>& allDetections) {
+    if (device == "cpu") {
+        postprocess_cpu(output_numel,
+                        output_numbox,
+                        output_data_device,
+                        num_classes,
+                        d2i,
+                        allDetections);
+    }
+    else if (device == "gpu") {
+        postprocess_gpu(output_numbox,
+                        output_data_device,
+                        num_classes,
+                        d2i,
+                        allDetections);        
+    } else {
+        printf("Device `%s` is not supported\n", device.c_str());
+    }
+}
+
+void YoloImpl::postprocess_cpu(const int& output_numel,
+                               const int& output_numbox,
+                               float* output_data_device,
+                               const int& num_classes,
+                               float* d2i,
+                               std::vector<DetectBox>& allDetections) {
+
+    float* output_data_host = nullptr;
+    checkRuntime(cudaMallocHost(&output_data_host, sizeof(float) * output_numel));
     checkRuntime(cudaMemcpyAsync(output_data_host, output_data_device, sizeof(float) * output_numel, cudaMemcpyDeviceToHost, stream));
     checkRuntime(cudaStreamSynchronize(stream));
 
@@ -200,7 +266,7 @@ void YoloImpl::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
     float confidence_threshold = 0.25;
     float nms_threshold = 0.5;
     for(int i = 0; i < output_numbox; ++i){
-        float* ptr = output_data_host + i * output_numprob;
+        float* ptr = output_data_host + i * (num_classes + 5);
         float objness = ptr[4];
         if(objness < confidence_threshold)
             continue;
@@ -232,11 +298,11 @@ void YoloImpl::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
         float image_base_right  = d2i[0] * right  + d2i[2];
         float image_base_top    = d2i[0] * top    + d2i[5];
         float image_base_bottom = d2i[0] * bottom + d2i[5];
-        bboxes.push_back({image_base_left, image_base_top, image_base_right, image_base_bottom, (float)label, confidence});
+        bboxes.push_back({image_base_left, image_base_top, image_base_right, image_base_bottom, confidence, (float)label});
     }
 
     // nms
-    std::sort(bboxes.begin(), bboxes.end(), [](std::vector<float>& a, std::vector<float>& b){return a[5] > b[5];});
+    std::sort(bboxes.begin(), bboxes.end(), [](std::vector<float>& a, std::vector<float>& b){return a[4] > b[4];});
     std::vector<bool> remove_flags(bboxes.size());
 
     allDetections.clear();
@@ -264,15 +330,15 @@ void YoloImpl::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
         float top = ibox[1];
         float right = ibox[2];
         float bottom = ibox[3];
-        int class_label = ibox[4];
-        float confidence = ibox[5];
+        float confidence = ibox[4];
+        int class_label = ibox[5];
         DetectBox dd(left, top, right, bottom, confidence, class_label);
         allDetections.emplace_back(dd);
         for(int j = i + 1; j < bboxes.size(); ++j){
             if(remove_flags[j]) continue;
 
             auto& jbox = bboxes[j];
-            if(ibox[4] == jbox[4]){
+            if(ibox[5] == jbox[5]){
                 // class matched
                 if(iou(ibox, jbox) >= nms_threshold)
                     remove_flags[j] = true;
@@ -282,7 +348,197 @@ void YoloImpl::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
 
     allDetections.shrink_to_fit();
     checkRuntime(cudaFreeHost(output_data_host));
-    checkRuntime(cudaFree(output_data_device));
+}
+
+static __device__ void affine_project(float* matrix, float x, float y, float* ox, float* oy) {
+    *ox = matrix[0] * x + matrix[1] * y + matrix[2];
+    *oy = matrix[3] * x + matrix[4] * y + matrix[5];
+}
+
+static __global__ void decode_kernel(float* predict, 
+                                     int num_bboxes,
+                                     int num_classes,
+                                     float confidence_threshold, 
+                                     float* invert_affine_matrix,
+                                     float* parray,
+                                     int max_objects,
+                                     int NUM_BOX_ELEMENT) {
+
+    int position = blockDim.x * blockIdx.x + threadIdx.x;
+    if (position >= num_bboxes) return;
+
+    float* pitem     = predict + (5 + num_classes) * position;
+    float objectness = pitem[4];
+    if(objectness < confidence_threshold)
+        return;
+
+    float* class_confidence = pitem + 5;
+    float confidence        = *class_confidence++;
+    int label               = 0;
+    for(int i = 1; i < num_classes; ++i, ++class_confidence){
+        if(*class_confidence > confidence) {
+            confidence = *class_confidence;
+            label      = i;
+        }
+    }
+
+    if (label != 0) {  // only detect and track person(cocolabels[0])
+        return;
+    }
+
+    confidence *= objectness;
+    if(confidence < confidence_threshold)
+        return;
+
+    int index = atomicAdd(parray, 1);
+    if(index >= max_objects)
+        return;
+
+    float cx         = *pitem++;
+    float cy         = *pitem++;
+    float width      = *pitem++;
+    float height     = *pitem++;
+    float left   = cx - width * 0.5f;
+    float top    = cy - height * 0.5f;
+    float right  = cx + width * 0.5f;
+    float bottom = cy + height * 0.5f;
+    affine_project(invert_affine_matrix, left,  top,    &left,  &top);
+    affine_project(invert_affine_matrix, right, bottom, &right, &bottom);
+
+    // left, top, right, bottom, confidence, class, keepflag
+    float* pout_item = parray + 1 + index * NUM_BOX_ELEMENT;
+    *pout_item++ = left;
+    *pout_item++ = top;
+    *pout_item++ = right;
+    *pout_item++ = bottom;
+    *pout_item++ = confidence;
+    *pout_item++ = label;
+    *pout_item++ = 1; // 1 = keep, 0 = ignore
+}
+
+static __device__ float box_iou(float aleft, float atop, float aright, float abottom, 
+                                float bleft, float btop, float bright, float bbottom) {
+
+    float cleft 	= max(aleft, bleft);
+    float ctop 		= max(atop, btop);
+    float cright 	= min(aright, bright);
+    float cbottom 	= min(abottom, bbottom);
+    
+    float c_area = max(cright - cleft, 0.0f) * max(cbottom - ctop, 0.0f);
+    if(c_area == 0.0f)
+        return 0.0f;
+    
+    float a_area = max(0.0f, aright - aleft) * max(0.0f, abottom - atop);
+    float b_area = max(0.0f, bright - bleft) * max(0.0f, bbottom - btop);
+    return c_area / (a_area + b_area - c_area);
+}
+
+static __global__ void fast_nms_kernel(float* bboxes, int max_objects, float threshold, int NUM_BOX_ELEMENT) {
+
+    int position = (blockDim.x * blockIdx.x + threadIdx.x);
+    int count = min((int)*bboxes, max_objects);
+    if (position >= count) 
+        return;
+    
+    // left, top, right, bottom, confidence, class, keepflag
+    float* pcurrent = bboxes + 1 + position * NUM_BOX_ELEMENT;
+    for(int i = 0; i < count; ++i){
+        float* pitem = bboxes + 1 + i * NUM_BOX_ELEMENT;
+        if(i == position || pcurrent[5] != pitem[5]) continue;
+
+        if(pitem[4] >= pcurrent[4]){
+            if(pitem[4] == pcurrent[4] && i < position)
+                continue;
+
+            float iou = box_iou(
+                pcurrent[0], pcurrent[1], pcurrent[2], pcurrent[3],
+                pitem[0],    pitem[1],    pitem[2],    pitem[3]
+            );
+
+            if(iou > threshold){
+                pcurrent[6] = 0;  // 1=keep, 0=ignore
+                return;
+            }
+        }
+    }
+}
+
+static void decode_kernel_invoker(float* predict,
+                                  int num_bboxes,
+                                  int num_classes,
+                                  float confidence_threshold,
+                                  float nms_threshold,
+                                  float* invert_affine_matrix,
+                                  float* parray,
+                                  int max_objects,
+                                  int NUM_BOX_ELEMENT,
+                                  cudaStream_t stream) {
+    
+    auto block = num_bboxes > 512 ? 512 : num_bboxes;
+    auto grid = (num_bboxes + block - 1) / block;
+
+    decode_kernel<<<grid, block, 0, stream>>>(
+        predict, num_bboxes, num_classes, confidence_threshold, 
+        invert_affine_matrix, parray, max_objects, NUM_BOX_ELEMENT
+    );
+
+    block = max_objects > 512 ? 512 : max_objects;
+    grid = (max_objects + block - 1) / block;
+    fast_nms_kernel<<<grid, block, 0, stream>>>(parray, max_objects, nms_threshold, NUM_BOX_ELEMENT);
+}
+
+void YoloImpl::postprocess_gpu(const int& output_numbox,
+                               float* predict_device,
+                               const int& num_classes,
+                               float* d2i,
+                               std::vector<DetectBox>& allDetections) {
+    // decode box：Restore predictions from different scales 
+    // to the original input image(bbox, probability, confidence)
+    float* output_device = nullptr;
+    float* output_host = nullptr;
+    const int max_objects = 1000;
+    const int NUM_BOX_ELEMENT = 7;  // left, top, right, bottom, confidence, class, keepflag
+    float confidence_threshold = 0.25;
+    float nms_threshold = 0.5;
+
+    float* d2i_device = nullptr;
+    checkRuntime(cudaMalloc(&d2i_device, 6 * sizeof(float)));
+    checkRuntime(cudaMemcpyAsync(d2i_device, d2i, 6 * sizeof(float), cudaMemcpyHostToDevice, this->stream));
+    // [count, box1, box2, ...]
+    checkRuntime(cudaMalloc(&output_device, sizeof(float) + max_objects * NUM_BOX_ELEMENT * sizeof(float)));
+    // [count=0, box1, box2, ...]
+    checkRuntime(cudaMemset(output_device, 0, sizeof(float)));
+    checkRuntime(cudaMallocHost(&output_host, sizeof(float) + max_objects * NUM_BOX_ELEMENT * sizeof(float)));
+
+    decode_kernel_invoker(
+        predict_device, output_numbox, num_classes, confidence_threshold, 
+        nms_threshold, d2i_device, output_device, max_objects, NUM_BOX_ELEMENT, this->stream
+    );
+    checkRuntime(cudaMemcpyAsync(output_host, output_device, 
+        sizeof(float) + max_objects * NUM_BOX_ELEMENT * sizeof(float), 
+        cudaMemcpyDeviceToHost, this->stream
+    ));
+    checkRuntime(cudaStreamSynchronize(this->stream));
+
+    int num_boxes = min((int)output_host[0], max_objects);
+
+    allDetections.clear();
+    allDetections.reserve(num_boxes);
+
+    for(int i = 0; i < num_boxes; ++i){
+        float* ptr = output_host + 1 + NUM_BOX_ELEMENT * i;
+        int keep_flag = ptr[6];
+        if(keep_flag){
+            // left, top, right, bottom, confidence, class
+            DetectBox dd(ptr[0], ptr[1], ptr[2], ptr[3], ptr[4], (int)ptr[5]);
+            allDetections.emplace_back(dd);
+        }
+    }
+    allDetections.shrink_to_fit();
+    checkRuntime(cudaFree(d2i_device));
+    checkRuntime(cudaFree(output_device));
+    checkRuntime(cudaFreeHost(output_host));
+    
 }
 
 std::shared_ptr<Yolo> create_yolo(char* modelPath, 
