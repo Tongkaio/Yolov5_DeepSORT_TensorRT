@@ -52,6 +52,7 @@ private:
 
 private:
     const char* modelPath;
+
     int input_batch;
     int input_channel;
     int input_height;
@@ -59,6 +60,14 @@ private:
     int input_numel;
     float* input_data_host;
     float* input_data_device;
+
+    int output_numbox;
+    int output_numprob;
+    int num_classes;
+    int output_numel;
+    float* output_data_device;
+
+    float* bindings[2];
 
 private:
     std::shared_ptr<nvinfer1::ICudaEngine> engine;
@@ -78,9 +87,10 @@ YoloImpl::YoloImpl(char* modelPath, int input_batch, int input_channel, int inpu
 }
 
 YoloImpl::~YoloImpl() {
-    checkRuntime(cudaStreamDestroy(stream));
-    checkRuntime(cudaFreeHost(input_data_host));
-    checkRuntime(cudaFree(input_data_device));
+    if (stream != nullptr) checkRuntime(cudaStreamDestroy(stream));
+    if (input_data_host != nullptr) checkRuntime(cudaFreeHost(input_data_host));
+    if (input_data_device != nullptr) checkRuntime(cudaFree(input_data_device));
+    if (output_data_device != nullptr) checkRuntime(cudaFree(output_data_device));
 }
 
 // build yolov5s engine, save to workspace/modelPath
@@ -156,6 +166,26 @@ bool YoloImpl::load_model() {
     this->execution_context = make_nvshared(engine->createExecutionContext());
     checkRuntime(cudaMallocHost(&this->input_data_host, this->input_numel * sizeof(float)));
     checkRuntime(cudaMalloc(&this->input_data_device, this->input_numel * sizeof(float)));
+
+    // 3x3 input -> 3x3 output
+    auto output_dims = engine->getBindingDimensions(1);
+    this->output_numbox = output_dims.d[1];
+    this->output_numprob = output_dims.d[2];
+    this->num_classes = output_numprob - 5;
+    this->output_numel = input_batch * output_numbox * output_numprob;
+
+    this->output_data_device = nullptr;
+    checkRuntime(cudaMalloc(&this->output_data_device, sizeof(float) * this->output_numel));
+
+    // Specify the data input size used during the current inference
+    auto input_dims = engine->getBindingDimensions(0);
+    input_dims.d[0] = input_batch;
+
+    this->execution_context->setBindingDimensions(0, input_dims);
+
+    this->bindings[0] = this->input_data_device;
+    this->bindings[1] = this->output_data_device;
+
     return true;
 }
 
@@ -192,23 +222,6 @@ void YoloImpl::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
 
     checkRuntime(cudaMemcpyAsync(this->input_data_device, this->input_data_host, this->input_numel * sizeof(float), cudaMemcpyHostToDevice, stream));
 
-    // 3x3 input -> 3x3 output
-    auto output_dims = engine->getBindingDimensions(1);
-    int output_numbox = output_dims.d[1];
-    int output_numprob = output_dims.d[2];
-    int num_classes = output_numprob - 5;
-    int output_numel = input_batch * output_numbox * output_numprob;
-
-    float* output_data_device = nullptr;
-    checkRuntime(cudaMalloc(&output_data_device, sizeof(float) * output_numel));
-
-    // Specify the data input size used during the current inference
-    auto input_dims = engine->getBindingDimensions(0);
-    input_dims.d[0] = input_batch;
-
-    execution_context->setBindingDimensions(0, input_dims);
-
-    float* bindings[] = {input_data_device, output_data_device};
     bool success      = execution_context->enqueueV2((void**)bindings, stream, nullptr);
     checkRuntime(cudaStreamSynchronize(stream));
 
@@ -219,7 +232,6 @@ void YoloImpl::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
                       num_classes,
                       d2i,
                       allDetections);
-    checkRuntime(cudaFree(output_data_device));
 }
 
 void YoloImpl::postprocess(const std::string& device,
