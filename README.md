@@ -44,7 +44,7 @@ make run
 
 项目运行时将显示推理结果，按 ESC 退出。
 
-目前在 GeForce RTX 2060 上，推理 test.mp4 的速度约为 45 ms/帧。
+目前在 GeForce RTX 2060 上，推理 test.mp4 的速度约为 40 ms/帧。
 
 # 文件说明
 
