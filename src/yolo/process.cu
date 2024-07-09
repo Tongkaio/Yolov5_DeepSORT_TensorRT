@@ -111,11 +111,11 @@ __global__ void decode_kernel(float* predict,
         return;
 
     float* class_confidence = pitem + 5;
-    float confidence        = *class_confidence++;
+    float confidence        = class_confidence[0];
     int label               = 0;
-    for(int i = 1; i < num_classes; ++i, ++class_confidence){
-        if(*class_confidence > confidence) {
-            confidence = *class_confidence;
+    for(int i = 1; i < num_classes; ++i){
+        if(class_confidence[i] > confidence) {
+            confidence = class_confidence[i];
             label      = i;
         }
     }
@@ -132,10 +132,10 @@ __global__ void decode_kernel(float* predict,
     if(index >= max_objects)
         return;
 
-    float cx         = *pitem++;
-    float cy         = *pitem++;
-    float width      = *pitem++;
-    float height     = *pitem++;
+    float cx         = pitem[0];
+    float cy         = pitem[1];
+    float width      = pitem[2];
+    float height     = pitem[3];
     float left   = cx - width * 0.5f;
     float top    = cy - height * 0.5f;
     float right  = cx + width * 0.5f;
@@ -145,13 +145,13 @@ __global__ void decode_kernel(float* predict,
 
     // left, top, right, bottom, confidence, class, keepflag
     float* pout_item = parray + 1 + index * NUM_BOX_ELEMENT;
-    *pout_item++ = left;
-    *pout_item++ = top;
-    *pout_item++ = right;
-    *pout_item++ = bottom;
-    *pout_item++ = confidence;
-    *pout_item++ = label;
-    *pout_item++ = 1; // 1 = keep, 0 = ignore
+    pout_item[0] = left;
+    pout_item[1] = top;
+    pout_item[2] = right;
+    pout_item[3] = bottom;
+    pout_item[4] = confidence;
+    pout_item[5] = label;
+    pout_item[6] = 1; // 1 = keep, 0 = ignore
 }
 
 __global__ void fast_nms_kernel(float* bboxes, int max_objects, float threshold, int NUM_BOX_ELEMENT) {
