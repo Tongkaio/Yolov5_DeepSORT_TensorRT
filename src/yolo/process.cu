@@ -185,16 +185,16 @@ __global__ void fast_nms_kernel(float* bboxes, int max_objects, float threshold,
 }
 
 void decode_kernel_invoker(float* predict,
-                                  int num_bboxes,
-                                  int num_classes,
-                                  float confidence_threshold,
-                                  float nms_threshold,
-                                  float* invert_affine_matrix,
-                                  float* parray,
-                                  int max_objects,
-                                  int NUM_BOX_ELEMENT,
-                                  cudaStream_t stream) {
-    
+                           int num_bboxes,
+                           int num_classes,
+                           float confidence_threshold,
+                           float nms_threshold,
+                           float* invert_affine_matrix,
+                           float* parray,
+                           int max_objects,
+                           int NUM_BOX_ELEMENT,
+                           cudaStream_t stream) {
+
     auto block = num_bboxes > 512 ? 512 : num_bboxes;
     auto grid = (num_bboxes + block - 1) / block;
 

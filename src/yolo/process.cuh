@@ -58,14 +58,14 @@ __global__ void decode_kernel(float* predict,
 __global__ void fast_nms_kernel(float* bboxes, int max_objects, float threshold, int NUM_BOX_ELEMENT);
 
 void decode_kernel_invoker(float* predict,
-                                  int num_bboxes,
-                                  int num_classes,
-                                  float confidence_threshold,
-                                  float nms_threshold,
-                                  float* invert_affine_matrix,
-                                  float* parray,
-                                  int max_objects,
-                                  int NUM_BOX_ELEMENT,
-                                  cudaStream_t stream);
+                           int num_bboxes,
+                           int num_classes,
+                           float confidence_threshold,
+                           float nms_threshold,
+                           float* invert_affine_matrix,
+                           float* parray,
+                           int max_objects,
+                           int NUM_BOX_ELEMENT,
+                           cudaStream_t stream);
 
 #endif  // PROCESS_CUH
