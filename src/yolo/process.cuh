@@ -27,28 +27,23 @@ static __device__ inline float box_iou(float aleft, float atop, float aright, fl
 }
 
 __global__ void warp_affine_bilinear_kernel(uint8_t* src,
-                                            int src_line_size,
                                             int src_width,
                                             int src_height,
                                             float* dst,
-                                            int dst_line_size,
                                             int dst_width,
                                             int dst_height,
                                             uint8_t fill_value,
                                             float* d2i);
 
 void warp_affine_bilinear(uint8_t* src,
-                          int src_line_size,
                           int src_width,
                           int src_height,
                           float* dst,
-                          int dst_line_size,
                           int dst_width,
                           int dst_height,
                           uint8_t fill_value,
                           float* d2i,
                           cudaStream_t stream);
-
 
 
 __global__ void decode_kernel(float* predict, 

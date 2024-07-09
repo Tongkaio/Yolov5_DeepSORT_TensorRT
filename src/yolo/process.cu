@@ -2,11 +2,9 @@
 
 
 __global__ void warp_affine_bilinear_kernel(uint8_t* src,
-                                            int src_line_size,
                                             int src_width,
                                             int src_height,
                                             float* dst,
-                                            int dst_line_size,
                                             int dst_width,
                                             int dst_height,
                                             uint8_t fill_value,
@@ -47,16 +45,16 @@ __global__ void warp_affine_bilinear_kernel(uint8_t* src,
 
     // 6. 如果四个角像素在有效范围内，则将像素值更新为该像素(含三通道)
     if (low_y >= 0 && low_x >= 0 && low_y < src_height && low_x < src_width) {
-        v1 = src + low_y * src_line_size + low_x * 3;  // 左上元素像素值(b,g,r)
+        v1 = src + low_y * src_width * 3 + low_x * 3;  // 左上元素像素值(b,g,r)
     }
     if (low_y >= 0 && high_x >= 0 && low_y < src_height && high_x < src_width) {
-        v2 = src + low_y * src_line_size + high_x * 3;  // 右上元素像素值(b,g,r)
+        v2 = src + low_y * src_width * 3 + high_x * 3;  // 右上元素像素值(b,g,r)
     }
     if (high_y >= 0 && low_x >= 0 && high_y < src_height && low_x < src_width) {
-        v3 = src + high_y * src_line_size + low_x * 3;  // 左下元素像素值(b,g,r)
+        v3 = src + high_y * src_width * 3 + low_x * 3;  // 左下元素像素值(b,g,r)
     }
     if (high_y >= 0 && high_x >= 0 && high_y < src_height && high_x < src_width) {
-        v4 = src + high_y * src_line_size + high_x * 3;  // 右下元素像素值(b,g,r)
+        v4 = src + high_y * src_width * 3 + high_x * 3;  // 右下元素像素值(b,g,r)
     }
 
     // 7. 双线性插值，权重*像素值，bgr三通道都要算一遍
@@ -69,20 +67,18 @@ __global__ void warp_affine_bilinear_kernel(uint8_t* src,
     // 8.1 bgr=>rgb: dst_c0是r，存储src_c2(r)；dst_c2是b，存储src_c0(b)；
     // 8.2 除以255进行归一化
     int area = dst_width * dst_height;
-    float* pdst_c0 = dst + dy * dst_width + dx;  // r层
-    float* pdst_c1 = pdst_c0 + area;             // g层
-    float* pdst_c2 = pdst_c1 + area;             // b层
-    *pdst_c0 = c2 / 255.0f;  // r
-    *pdst_c1 = c1 / 255.0f;  // g
-    *pdst_c2 = c0 / 255.0f;  // b
+    float* dst_c0 = dst + dy * dst_width + dx;  // r层
+    float* dst_c1 = dst_c0 + area;             // g层
+    float* dst_c2 = dst_c1 + area;             // b层
+    *dst_c0 = c2 / 255.0f;  // r
+    *dst_c1 = c1 / 255.0f;  // g
+    *dst_c2 = c0 / 255.0f;  // b
 }
 
 void warp_affine_bilinear(uint8_t* src,
-                          int src_line_size,
                           int src_width,
                           int src_height,
                           float* dst,
-                          int dst_line_size,
                           int dst_width,
                           int dst_height,
                           uint8_t fill_value,
@@ -91,8 +87,8 @@ void warp_affine_bilinear(uint8_t* src,
     dim3 block_size(32, 32);
     dim3 grid_size((dst_width + 31)/32, (dst_height + 31)/32);
     warp_affine_bilinear_kernel<<<grid_size, block_size, 0, stream>>>(
-        src, src_line_size, src_width, src_height,
-        dst, dst_line_size, dst_width, dst_height,
+        src, src_width, src_height,
+        dst, dst_width, dst_height,
         fill_value, d2i        
     );
 }

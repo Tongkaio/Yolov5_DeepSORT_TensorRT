@@ -204,8 +204,8 @@ void YoloImpl::preprocess(const std::string& device, float* d2i, cv::Mat& image)
     float scale = std::min(scale_x, scale_y);
     // 正变换矩阵，缩放到目标尺寸，且长边对齐，位置居中
     float i2d[6];
-    i2d[0] = scale;  i2d[1] = 0;  i2d[2] = (-scale * image.cols + input_width + scale  - 1) * 0.5;
-    i2d[3] = 0;  i2d[4] = scale;  i2d[5] = (-scale * image.rows + input_height + scale - 1) * 0.5;
+    i2d[0] = scale;  i2d[1] = 0;  i2d[2] = (-scale * (image.cols - 1) + input_width - 1) * 0.5;
+    i2d[3] = 0;  i2d[4] = scale;  i2d[5] = (-scale * (image.rows - 1) + input_height - 1) * 0.5;
 
     // 用Opencv计算逆变换矩阵d2i
     cv::Mat m2x3_i2d(2, 3, CV_32F, i2d);  // image to dst(network), 2x3 matrix
@@ -223,8 +223,8 @@ void YoloImpl::preprocess(const std::string& device, float* d2i, cv::Mat& image)
         checkRuntime(cudaMemcpyAsync(src_device, image.data, src_size, cudaMemcpyHostToDevice, stream));
 
         warp_affine_bilinear(
-            src_device, image.cols * 3, image.cols, image.rows,
-            dst_device, input_width * 3, input_width, input_height,
+            src_device, image.cols, image.rows,
+            dst_device, input_width, input_height,
             114, d2i_device, this->stream
         );
 
