@@ -345,8 +345,8 @@ void YoloImpl::postprocess_cpu(const int& output_numel,
         // bbox position on image
         float image_base_left   = d2i[0] * left   + d2i[2];
         float image_base_right  = d2i[0] * right  + d2i[2];
-        float image_base_top    = d2i[0] * top    + d2i[5];
-        float image_base_bottom = d2i[0] * bottom + d2i[5];
+        float image_base_top    = d2i[4] * top    + d2i[5];
+        float image_base_bottom = d2i[4] * bottom + d2i[5];
         bboxes.push_back({image_base_left, image_base_top, image_base_right, image_base_bottom, confidence, (float)label});
     }
 
@@ -357,7 +357,7 @@ void YoloImpl::postprocess_cpu(const int& output_numel,
     allDetections.clear();
     allDetections.reserve(bboxes.size());
 
-    auto iou = [](const std::vector<float>& a, const std::vector<float>& b){
+    auto iou = [](const std::vector<float>& a, const std::vector<float>& b) {
         float cross_left   = std::max(a[0], b[0]);
         float cross_top    = std::max(a[1], b[1]);
         float cross_right  = std::min(a[2], b[2]);
@@ -370,24 +370,24 @@ void YoloImpl::postprocess_cpu(const int& output_numel,
         return cross_area / union_area;
     };
 
-    for(int i = 0; i < bboxes.size(); ++i){
+    for(int i = 0; i < bboxes.size(); ++i) {
         if(remove_flags[i]) continue;
 
         auto& ibox = bboxes[i];
-        // box_result.emplace_back(ibox);
+
         float left = ibox[0];
         float top = ibox[1];
         float right = ibox[2];
         float bottom = ibox[3];
         float confidence = ibox[4];
         int class_label = ibox[5];
-        DetectBox dd(left, top, right, bottom, confidence, class_label);
-        allDetections.emplace_back(dd);
+        DetectBox db(left, top, right, bottom, confidence, class_label);
+        allDetections.emplace_back(db);
         for(int j = i + 1; j < bboxes.size(); ++j){
             if(remove_flags[j]) continue;
 
             auto& jbox = bboxes[j];
-            if(ibox[5] == jbox[5]){
+            if(ibox[5] == jbox[5]) {
                 // class matched
                 if(iou(ibox, jbox) >= nms_threshold)
                     remove_flags[j] = true;
@@ -443,8 +443,8 @@ void YoloImpl::postprocess_gpu(const int& output_numbox,
         int keep_flag = ptr[6];
         if(keep_flag){
             // left, top, right, bottom, confidence, class
-            DetectBox dd(ptr[0], ptr[1], ptr[2], ptr[3], ptr[4], (int)ptr[5]);
-            allDetections.emplace_back(dd);
+            DetectBox db(ptr[0], ptr[1], ptr[2], ptr[3], ptr[4], (int)ptr[5]);
+            allDetections.emplace_back(db);
         }
     }
     allDetections.shrink_to_fit();
