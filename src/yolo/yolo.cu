@@ -258,7 +258,7 @@ void YoloImpl::detect(cv::Mat& image, std::vector<DetectBox>& allDetections) {
     float d2i[6];
     this->preprocess("gpu", d2i, image);
 
-    bool success      = execution_context->enqueueV2((void**)bindings, stream, nullptr);
+    bool success = execution_context->enqueueV2((void**)bindings, stream, nullptr);
     checkRuntime(cudaStreamSynchronize(stream));
 
     this->postprocess("gpu",
