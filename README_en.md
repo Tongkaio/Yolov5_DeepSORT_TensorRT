@@ -38,7 +38,7 @@ Download files to the workspace directory:
 > The ONNX model for Yolo is exported from [yolov5-6.0](https://github.com/ultralytics/yolov5/tree/v6.0), and the ONNX model for deepsort is exported from [deep_sort_pytorch](https://github.com/ZQPei/deep_sort_pytorch). Refer to the script [exportOnnx.py](https://github.com/GesilaA/deepsort_tensorrt/blob/master/exportOnnx.py) for more details.
 
 ## 🏃‍ Run
-Modify the relevant header and library paths in the MakeFile (if you are running this code in a container created from the provided Dockerfile, this step is not needed), then execute:
+Modify the relevant header and library paths in the MakeFile (if you are using a container created from the provided Dockerfile, this step is not needed), then execute:
 ```shell
 make run
 ```
