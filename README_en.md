@@ -33,7 +33,7 @@ Download files to the workspace directory:
 | :-----------: | :----------------------------------------------------------: |
 | yolov5s.onnx  | [Download](https://pan.baidu.com/s/1RLFFuATbg9MkqLLBd3Nzdw) (code: tg42) |
 | deepsort.onnx | [Download](https://pan.baidu.com/s/1kmDId6lzpCN50xH7e1t8BA) (code: iyms) |
-| test.mp4      | [Download](https://pan.baidu.com/s/1dnPyUtfWupk6YTUOKj7Rxg) (code: vatx)
+| test.mp4      | [Download](https://pan.baidu.com/s/1dnPyUtfWupk6YTUOKj7Rxg) (code: vatx) |
 
 > The ONNX model for Yolo is exported from [yolov5-6.0](https://github.com/ultralytics/yolov5/tree/v6.0), and the ONNX model for deepsort is exported from [deep_sort_pytorch](https://github.com/ZQPei/deep_sort_pytorch). Refer to the script [exportOnnx.py](https://github.com/GesilaA/deepsort_tensorrt/blob/master/exportOnnx.py) for more details.
 

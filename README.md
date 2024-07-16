@@ -33,7 +33,7 @@ mkdir workspace
 | :-----------: | :----------------------------------------------------------: |
 | yolov5s.onnx  | [下载](https://pan.baidu.com/s/1RLFFuATbg9MkqLLBd3Nzdw) (提取码: tg42) |
 | deepsort.onnx | [下载](https://pan.baidu.com/s/1kmDId6lzpCN50xH7e1t8BA) (提取码: iyms) |
-| test.mp4      | [下载](https://pan.baidu.com/s/1dnPyUtfWupk6YTUOKj7Rxg) (提取码: vatx)
+| test.mp4      | [下载](https://pan.baidu.com/s/1dnPyUtfWupk6YTUOKj7Rxg) (提取码: vatx) |
 
 > yolo 的 onnx 导出自 [yolov5-6.0](https://github.com/ultralytics/yolov5/tree/v6.0)，deepsort 的 onnx 导出自 [deep_sort_pytorch](https://github.com/ZQPei/deep_sort_pytorch)，可参考脚本 [exportOnnx.py](https://github.com/GesilaA/deepsort_tensorrt/blob/master/exportOnnx.py)
 
