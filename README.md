@@ -1,4 +1,5 @@
 # Yolov5-DeepSORT-TensorRT
+简体中文 | [English](./README_en.md)
 
 <div align=center>
 <img src="./assets/demo.gif"/>
