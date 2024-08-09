@@ -29,13 +29,13 @@ mkdir workspace
 ```
 
 下载文件到 workspace 目录下：
+
 |     文件      |                             链接                             |
 | :-----------: | :----------------------------------------------------------: |
-| yolov5s.onnx  | [下载](https://pan.baidu.com/s/1RLFFuATbg9MkqLLBd3Nzdw) (提取码: tg42) |
-| deepsort.onnx | [下载](https://pan.baidu.com/s/1kmDId6lzpCN50xH7e1t8BA) (提取码: iyms) |
-| test.mp4      | [下载](https://pan.baidu.com/s/1dnPyUtfWupk6YTUOKj7Rxg) (提取码: vatx) |
+| *.onnx, test.mp4 | [下载](https://pan.baidu.com/s/1HNveFo1S4RgXx1JlXMaSwA) (提取码: zxao) |
 
-> yolo 的 onnx 导出自 [yolov5-6.0](https://github.com/ultralytics/yolov5/tree/v6.0)，deepsort 的 onnx 导出自 [deep_sort_pytorch](https://github.com/ZQPei/deep_sort_pytorch)，可参考脚本 [exportOnnx.py](https://github.com/GesilaA/deepsort_tensorrt/blob/master/exportOnnx.py)
+- yolov5s.onnx 导出自 [yolov5-6.0](https://github.com/ultralytics/yolov5/tree/v6.0)，deepsort 的 onnx 导出自 [deep_sort_pytorch](https://github.com/ZQPei/deep_sort_pytorch)，可参考脚本 [exportOnnx.py](https://github.com/GesilaA/deepsort_tensorrt/blob/master/exportOnnx.py)
+- ptq_yolov5s.onnx 是量化模型，参考 https://github.com/Tongkaio/yolov5_quant
 
 ## 🏃‍ 运行
 修改 MakeFile 中的相关头文件和库文件路径（若使用本项目提供的 docker 则不需要），然后执行：
@@ -45,7 +45,7 @@ make run
 
 项目运行时将显示推理结果，按 ESC 退出。
 
-目前在 GeForce RTX 2060 上，推理 test.mp4 的速度约为 40 ms/帧。
+目前在 GeForce RTX 2060 上，推理 test.mp4 的速度约为 35 ms/帧。
 
 # 文件说明
 
