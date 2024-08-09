@@ -116,6 +116,8 @@ bool YoloImpl::build_model() {
     if(exists(this->engineFile)){
         printf("%s has exists.\n", this->engineFile);
         return true;
+    } else {
+        printf("Building %s ...\n", this->engineFile);
     }
 
     // make_nvshared, destroy automatically
@@ -153,7 +155,7 @@ bool YoloImpl::build_model() {
 
     auto engine = make_nvshared(builder->buildEngineWithConfig(*network, *config));
     if(engine == nullptr){
-        printf("Build engine failed.\n");
+        printf("Build %s failed.\n", this->engineFile);
         return false;
     }
 
@@ -163,7 +165,7 @@ bool YoloImpl::build_model() {
     fwrite(model_data->data(), 1, model_data->size(), f);
     fclose(f);
 
-    printf("Build Done.\n");
+    printf("Build done.\n");
     return true;
 }
 
