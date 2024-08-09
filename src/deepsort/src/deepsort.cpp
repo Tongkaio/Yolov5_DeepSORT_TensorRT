@@ -190,15 +190,13 @@ bool DeepSortImpl::build_model() {
         printf("Building %s ...\n", this->engineFile);
     }
 
-    TRTLogger logger;
-
     // make_nvshared, destroy automatically
-    auto builder = make_nvshared(nvinfer1::createInferBuilder(logger));
+    auto builder = make_nvshared(nvinfer1::createInferBuilder(*gLogger));
     auto config = make_nvshared(builder->createBuilderConfig());
     auto network = make_nvshared(builder->createNetworkV2(1));
 
     // parse network data from onnx file to `network`
-    auto parser = make_nvshared(nvonnxparser::createParser(*network, logger));
+    auto parser = make_nvshared(nvonnxparser::createParser(*network, *gLogger));
     if(!parser->parseFromFile(this->onnxFile, 1)) {
         printf("Failed to parse %s\n", this->onnxFile);
         return false;
@@ -210,7 +208,6 @@ bool DeepSortImpl::build_model() {
 
     auto profile = builder->createOptimizationProfile();
     auto input_tensor = network->getInput(0);
-    printf("input->name = %s\n", input_tensor->getName());
 
     const int IMG_HEIGHT = 128;
     const int IMG_WIDTH = 64;
