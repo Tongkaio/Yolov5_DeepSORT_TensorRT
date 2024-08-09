@@ -9,7 +9,13 @@ using nvinfer1::ILogger;
 
 class DeepSortImpl : public DeepSort {
 public:    
-    DeepSortImpl(char* modelPath, int batchSize, int featureDim, int gpuID, ILogger* gLogger);
+    DeepSortImpl(char* onnxFile,
+                 char* engineFile,
+                 bool useInt8,
+                 int batchSize,
+                 int featureDim,
+                 int gpuID,
+                 ILogger* gLogger);
     ~DeepSortImpl();
 
 public:
@@ -25,7 +31,9 @@ private:
     
 
 private:
-    char* enginePath;
+    char* onnxFile;
+    char* engineFile;
+    bool useInt8;
     int batchSize;
     int featureDim;
     cv::Size imgShape;
@@ -43,11 +51,19 @@ private:
     int gpuID;
 };
 
-DeepSortImpl::DeepSortImpl(char* modelPath, int batchSize, int featureDim, int gpuID, ILogger* gLogger) {
-    this->gpuID = gpuID;
-    this->enginePath = modelPath;
+DeepSortImpl::DeepSortImpl(char* onnxFile,
+                           char* engineFile,
+                           bool useInt8,
+                           int batchSize,
+                           int featureDim,
+                           int gpuID,
+                           ILogger* gLogger) {
+    this->onnxFile = onnxFile;
+    this->engineFile = engineFile;
+    this->useInt8 = useInt8;
     this->batchSize = batchSize;
     this->featureDim = featureDim;
+    this->gpuID = gpuID;
     this->imgShape = cv::Size(64, 128);
     this->maxBudget = 100;
     this->maxCosineDist = 0.2;
@@ -61,12 +77,7 @@ DeepSortImpl::~DeepSortImpl() {
 bool DeepSortImpl::load_model() {
     objTracker = new tracker(maxCosineDist, maxBudget);
     featureExtractor = new FeatureTensor(batchSize, imgShape, featureDim, gpuID, gLogger);
-    std::string enginePathStr(enginePath);
-    int ret = enginePathStr.find(".onnx");
-    if (ret != -1)
-        featureExtractor->loadOnnx(enginePath);
-    else
-        featureExtractor->loadEngine(enginePath);
+    featureExtractor->loadEngine(engineFile);
     return true;
 }
 
@@ -172,8 +183,8 @@ void DeepSortImpl::sort(DETECTIONS& detections) {
 
 // build deepsort engine, save to workspace/deepsort.trtmodel
 bool DeepSortImpl::build_model() {
-    if(exists(enginePath)) {
-        printf("%s has exists.\n", enginePath);
+    if(exists(this->engineFile)) {
+        printf("%s has exists.\n", this->engineFile);
         return true;
     }
 
@@ -186,11 +197,11 @@ bool DeepSortImpl::build_model() {
 
     // parse network data from onnx file to `network`
     auto parser = make_nvshared(nvonnxparser::createParser(*network, logger));
-    if(!parser->parseFromFile("deepsort.onnx", 1)) {
-        printf("Failed to parse deepsort.onnx\n");
+    if(!parser->parseFromFile(this->onnxFile, 1)) {
+        printf("Failed to parse %s\n", this->onnxFile);
         return false;
     }
-    
+
     int maxBatchSize = 10;
     printf("Workspace Size = %.2f MB\n", (1 << 28) / 1024.0f / 1024.0f);
     config->setMaxWorkspaceSize(1 << 28);
@@ -203,6 +214,10 @@ bool DeepSortImpl::build_model() {
     const int IMG_WIDTH = 64;
     const int MAX_BATCH_SIZE = 128;
     nvinfer1::Dims dims = nvinfer1::Dims4{1, 3, IMG_HEIGHT, IMG_WIDTH};
+
+    if (this->useInt8) {
+        config->setFlag(nvinfer1::BuilderFlag::kINT8);
+    }
 
     // configure minimum, optimal, and maximum ranges
     profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMIN, 
@@ -221,7 +236,7 @@ bool DeepSortImpl::build_model() {
 
     // serialize model to engine file
     auto model_data = make_nvshared(engine->serialize());
-    FILE* f = fopen(enginePath, "wb");
+    FILE* f = fopen(this->engineFile, "wb");
     fwrite(model_data->data(), 1, model_data->size(), f);
     fclose(f);
 
@@ -229,13 +244,15 @@ bool DeepSortImpl::build_model() {
     return true;
 }
 
-std::shared_ptr<DeepSort> create_deepsort(char* modelPath,
+std::shared_ptr<DeepSort> create_deepsort(char* onnxFile,
+                                          char* engineFile,
+                                          bool useInt8,
                                           int batchSize,
                                           int featureDim,
                                           int gpuID,
                                           ILogger* logger) {
     
-    shared_ptr<DeepSortImpl> instance(new DeepSortImpl(modelPath, batchSize, featureDim, gpuID, logger));
+    shared_ptr<DeepSortImpl> instance(new DeepSortImpl(onnxFile, engineFile, useInt8, batchSize, featureDim, gpuID, logger));
     if (!instance->build_model()) {
         instance.reset();
         return instance;

@@ -11,7 +11,9 @@ public:
     virtual void sort(cv::Mat& frame, std::vector<DetectBox>& dets) = 0;
 };
 
-std::shared_ptr<DeepSort> create_deepsort(char* modelPath,
+std::shared_ptr<DeepSort> create_deepsort(char* onnxFile,
+                                          char* engineFile,
+                                          bool useInt8,
                                           int batchSize,
                                           int featureDim,
                                           int gpuID,

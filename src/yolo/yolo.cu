@@ -24,7 +24,14 @@ const char* cocolabels[] = {
 
 class YoloImpl : public Yolo {
 public:    
-    YoloImpl(char* modelPath, int input_batch, int input_channel, int input_height, int input_width, TRTLogger* logger);
+    YoloImpl(char* onnxFile,
+             char* engineFile,
+             bool useInt8,
+             int input_batch,
+             int input_channel,
+             int input_height,
+             int input_width,
+             TRTLogger* logger);
     ~YoloImpl();
 
 public:
@@ -54,7 +61,9 @@ private:
                          std::vector<DetectBox>& allDetections);
 
 private:
-    const char* modelPath;
+    const char* onnxFile;
+    const char* engineFile;
+    bool useInt8;
 
     int input_batch;
     int input_channel;
@@ -80,8 +89,10 @@ private:
 };
 
 
-YoloImpl::YoloImpl(char* modelPath, int input_batch, int input_channel, int input_height, int input_width, TRTLogger* logger) {
-    this->modelPath = modelPath;
+YoloImpl::YoloImpl(char* onnxFile, char* engineFile, bool useInt8, int input_batch, int input_channel, int input_height, int input_width, TRTLogger* logger) {
+    this->onnxFile = onnxFile;
+    this->engineFile = engineFile;
+    this->useInt8 = useInt8;
     this->input_batch = input_batch;
     this->input_channel = input_channel;
     this->input_height = input_height;
@@ -99,11 +110,11 @@ YoloImpl::~YoloImpl() {
 }
 
 
-// build yolov5s engine, save to workspace/modelPath
+// build yolov5s engine, save to workspace/engineFile
 bool YoloImpl::build_model() {
 
-    if(exists(this->modelPath)){
-        printf("%s has exists.\n", this->modelPath);
+    if(exists(this->engineFile)){
+        printf("%s has exists.\n", this->engineFile);
         return true;
     }
 
@@ -114,8 +125,8 @@ bool YoloImpl::build_model() {
 
     // parse network data from onnx file to `network`
     auto parser = make_nvshared(nvonnxparser::createParser(*network, *logger));
-    if(!parser->parseFromFile("yolov5s.onnx", 1)){
-        printf("Failed to parse yolov5s.onnx\n");
+    if(!parser->parseFromFile(this->onnxFile, 1)){
+        printf("Failed to parse %s\n", this->onnxFile);
         return false;
     }
     
@@ -129,6 +140,11 @@ bool YoloImpl::build_model() {
     
     // configure minimum, optimal, and maximum ranges
     input_dims.d[0] = 1;
+
+    if (this->useInt8) {
+        config->setFlag(nvinfer1::BuilderFlag::kINT8);
+    }
+
     profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMIN, input_dims);
     profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kOPT, input_dims);
     input_dims.d[0] = maxBatchSize;
@@ -143,7 +159,7 @@ bool YoloImpl::build_model() {
 
     // serialize model to engine file
     auto model_data = make_nvshared(engine->serialize());
-    FILE* f = fopen(this->modelPath, "wb");
+    FILE* f = fopen(this->engineFile, "wb");
     fwrite(model_data->data(), 1, model_data->size(), f);
     fclose(f);
 
@@ -154,7 +170,7 @@ bool YoloImpl::build_model() {
 
 bool YoloImpl::load_model() {
 
-    auto yolov5_engine_data = load_file(this->modelPath);
+    auto yolov5_engine_data = load_file(this->engineFile);
     auto runtime   = make_nvshared(nvinfer1::createInferRuntime(*(this->logger)));
     this->engine = make_nvshared(runtime->deserializeCudaEngine(yolov5_engine_data.data(), yolov5_engine_data.size()));
     if(engine == nullptr){
@@ -454,14 +470,22 @@ void YoloImpl::postprocess_gpu(const int& output_numbox,
     
 }
 
-std::shared_ptr<Yolo> create_yolo(char* modelPath, 
+std::shared_ptr<Yolo> create_yolo(char* onnxFile,
+                                  char* engineFile,
+                                  bool useInt8,
                                   int input_batch,
                                   int input_channel,
                                   int input_height,
                                   int input_width,
                                   TRTLogger* logger) {
-
-    std::shared_ptr<YoloImpl> instance(new YoloImpl(modelPath, input_batch, input_channel, input_height, input_width, logger));
+    std::shared_ptr<YoloImpl> instance(new YoloImpl(onnxFile, 
+                                                    engineFile,
+                                                    useInt8,
+                                                    input_batch,
+                                                    input_channel,
+                                                    input_height,
+                                                    input_width,
+                                                    logger));
     if (!instance->build_model()) {
         instance.reset();
         return instance;

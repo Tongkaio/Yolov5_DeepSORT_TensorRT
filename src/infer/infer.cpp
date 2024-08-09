@@ -15,7 +15,12 @@
 
 class InferImpl : public Infer {
 public:
-    InferImpl(char* yolo_engine, char* deepsort_engine);
+    InferImpl(char* yolo_onnx,
+              char* deepsort_onnx,
+              char* yolo_engine,
+              char* deepsort_engine,
+              bool yolo_int8,
+              bool deepsort_int8);
     bool create_model();
     void forward(const std::string& file) override;
 
@@ -27,8 +32,12 @@ private:
 
 private:
     TRTLogger logger;
+    char* yolo_onnx;
+    char* deepsort_onnx;
     char* yolo_engine;
     char* deepsort_engine;
+    bool yolo_int8;
+    bool deepsort_int8;
     std::shared_ptr<Yolo> yolo;
     std::shared_ptr<DeepSort> DS;
     std::string video;
@@ -56,18 +65,27 @@ private:
     std::thread imshow_thread;
 };
 
-InferImpl::InferImpl(char* yolo_engine, char* deepsort_engine) {
+InferImpl::InferImpl(char* yolo_onnx,
+                     char* deepsort_onnx,
+                     char* yolo_engine,
+                     char* deepsort_engine,
+                     bool yolo_int8,
+                     bool deepsort_int8) {
+    this->yolo_onnx = yolo_onnx;
+    this->deepsort_onnx = deepsort_onnx;
     this->yolo_engine = yolo_engine;
     this->deepsort_engine = deepsort_engine;
+    this->yolo_int8 = yolo_int8;
+    this->deepsort_int8 = deepsort_int8;
 }
 
 bool InferImpl::create_model() {
-    this->yolo = create_yolo(this->yolo_engine, 1, 3, 640, 640, &this->logger);
+    this->yolo = create_yolo(this->yolo_onnx, this->yolo_engine, this->yolo_int8, 1, 3, 640, 640, &this->logger);
     if (this->yolo == nullptr) {
         printf("Create Yolo failed.\n");
         return false;
     }
-    this->DS = create_deepsort(this->deepsort_engine, 128, 256, 0, &this->logger);
+    this->DS = create_deepsort(this->deepsort_onnx, this->deepsort_engine, this->deepsort_int8, 128, 256, 0, &this->logger);
     if (this->DS == nullptr) {
         printf("Create Deepsort failed.\n");
         return false;
@@ -217,8 +235,18 @@ void InferImpl::imshow_worker() {
     }
 }
 
-std::shared_ptr<Infer> create_infer(char* yolo_engine, char* deepsort_engine) {
-    std::shared_ptr<InferImpl> instance(new InferImpl(yolo_engine, deepsort_engine));
+std::shared_ptr<Infer> create_infer(char* yolo_onnx,
+                                    char* deepsort_onnx,
+                                    char* yolo_engine,
+                                    char* deepsort_engine,
+                                    bool yolo_int8,
+                                    bool deepsort_int8) {
+    std::shared_ptr<InferImpl> instance(new InferImpl(yolo_onnx,
+                                                      deepsort_onnx,
+                                                      yolo_engine,
+                                                      deepsort_engine,
+                                                      yolo_int8,
+                                                      deepsort_int8));
     if (!instance->create_model()) {
         instance.reset();
         return instance;

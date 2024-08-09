@@ -13,7 +13,9 @@ public:
     virtual void detect(cv::Mat& image, std::vector<DetectBox>& allDetections) = 0;
 };
 
-std::shared_ptr<Yolo> create_yolo(char* modelPath,
+std::shared_ptr<Yolo> create_yolo(char* onnxFile,
+                                  char* engineFile,
+                                  bool useInt8,
                                   int input_batch,
                                   int input_channel,
                                   int input_height,
